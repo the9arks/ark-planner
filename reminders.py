@@ -101,6 +101,18 @@ async def _send_meeting_reminders(now: datetime):
             await db.mark_meeting_reminded(m["id"], field)
 
 
+async def _send_task_reminders(now: datetime):
+    window_start = (now - timedelta(minutes=5)).isoformat()
+    window_end = (now + timedelta(minutes=5)).isoformat()
+    tasks = await db.get_tasks_needing_reminder(window_start, window_end)
+    for t in tasks:
+        telegram_id = (t.get("users") or {}).get("telegram_id")
+        if not telegram_id:
+            continue
+        await _send_message(telegram_id, f"🔔 {t['title']}")
+        await db.mark_task_reminded(t["id"])
+
+
 async def _send_habit_reminders(now: datetime):
     today_iso = now.date().isoformat()
     today_code = WEEKDAY_CODES[now.weekday()]
@@ -132,3 +144,4 @@ async def run_tick():
     await _send_meal_reminders(now)
     await _send_meeting_reminders(now)
     await _send_habit_reminders(now)
+    await _send_task_reminders(now)

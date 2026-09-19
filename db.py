@@ -75,8 +75,12 @@ def _insert_sync(table: str, row: dict) -> dict:
     return result.data[0]
 
 
-async def add_task(user_id: str, title: str, due_at: str | None = None) -> dict:
-    return await _run(_insert_sync, "tasks", {"user_id": user_id, "title": title, "due_at": due_at})
+async def add_task(user_id: str, title: str, due_at: str | None = None, remind: bool = False) -> dict:
+    return await _run(
+        _insert_sync,
+        "tasks",
+        {"user_id": user_id, "title": title, "due_at": due_at, "remind": remind},
+    )
 
 
 async def add_note(user_id: str, content: str) -> dict:
@@ -224,6 +228,32 @@ def _set_user_time_sync(user_id: str, field: str, time_str: str):
 
 async def set_user_time(user_id: str, field: str, time_str: str):
     await _run(_set_user_time_sync, user_id, field, time_str)
+
+
+def _get_tasks_needing_reminder_sync(window_start: str, window_end: str) -> list[dict]:
+    return (
+        get_client()
+        .table("tasks")
+        .select("*, users(telegram_id)")
+        .eq("remind", True)
+        .eq("reminded", False)
+        .gte("due_at", window_start)
+        .lt("due_at", window_end)
+        .execute()
+        .data
+    )
+
+
+async def get_tasks_needing_reminder(window_start: str, window_end: str) -> list[dict]:
+    return await _run(_get_tasks_needing_reminder_sync, window_start, window_end)
+
+
+def _mark_task_reminded_sync(task_id: str):
+    get_client().table("tasks").update({"reminded": True}).eq("id", task_id).execute()
+
+
+async def mark_task_reminded(task_id: str):
+    await _run(_mark_task_reminded_sync, task_id)
 
 
 def _get_digest_sync(user_id: str) -> dict:

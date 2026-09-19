@@ -133,7 +133,10 @@ async def _store_entry(user_id: str, data: dict):
     entry_type = data.get("entry_type")
     if entry_type == "task":
         await db.add_task(
-            user_id, data.get("title") or data.get("description"), _localize(data.get("starts_at"))
+            user_id,
+            data.get("title") or data.get("description"),
+            _localize(data.get("starts_at")),
+            remind=bool(data.get("remind")),
         )
     elif entry_type == "meeting":
         await db.add_meeting(
@@ -196,6 +199,8 @@ def _format_reply(data: dict) -> str:
         when = _format_when(data.get("starts_at"))
         due = f" (до {when})" if when else ""
         reply = f"✅ Задача: {data.get('title') or data.get('description')}{due}"
+        if data.get("remind") and when:
+            reply += f"\n🔔 Напомню {when}"
     elif entry_type == "meeting":
         when = _format_when(data.get("starts_at"))
         when_str = f" {when}" if when else ""
@@ -239,13 +244,14 @@ async def on_photo(message: Message):
 
     try:
         data = ai.classify_photo(image_bytes, "image/jpeg", caption=message.caption)
+        await _store_entry(user["id"], data)
+        reply = _format_reply(data)
     except Exception:
-        logging.exception("classify_photo failed")
-        await message.answer("Не смог распознать фото, попробуй ещё раз.")
+        logging.exception("on_photo failed")
+        await message.answer("Не смог обработать фото, попробуй ещё раз.")
         return
 
-    await _store_entry(user["id"], data)
-    await message.answer(_format_reply(data))
+    await message.answer(reply)
 
 
 @dp.message(F.text)
@@ -257,13 +263,14 @@ async def on_text(message: Message):
 
     try:
         data = ai.classify_text(message.text)
+        await _store_entry(user["id"], data)
+        reply = _format_reply(data)
     except Exception:
-        logging.exception("classify_text failed")
+        logging.exception("on_text failed")
         await message.answer("Не смог разобрать сообщение, попробуй переформулировать.")
         return
 
-    await _store_entry(user["id"], data)
-    await message.answer(_format_reply(data))
+    await message.answer(reply)
 
 
 WEBHOOK_SECRET = os.environ.get("WEBHOOK_SECRET", "dev-secret")
@@ -312,8 +319,24 @@ async def _run_render(bot: Bot, external_url: str):
     await asyncio.Event().wait()
 
 
+async def _setup_bot_commands(bot: Bot):
+    from aiogram.types import BotCommand
+
+    await bot.set_my_commands(
+        [
+            BotCommand(command="start", description="Что умеет ARK"),
+            BotCommand(command="summary", description="Сводка за сегодня"),
+            BotCommand(command="digest_time", description="Время утреннего дайджеста, напр. 09:30"),
+            BotCommand(command="breakfast_time", description="Время напоминания про завтрак"),
+            BotCommand(command="lunch_time", description="Время напоминания про обед"),
+            BotCommand(command="dinner_time", description="Время напоминания про ужин"),
+        ]
+    )
+
+
 async def main():
     bot = Bot(token=os.environ["TELEGRAM_BOT_TOKEN"])
+    await _setup_bot_commands(bot)
     external_url = os.environ.get("RENDER_EXTERNAL_URL")
     if external_url:
         await _run_render(bot, external_url)
