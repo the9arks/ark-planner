@@ -22,8 +22,9 @@ services:
   - type: web
     name: ark-planner-miniapp
     runtime: static
-    buildCommand: cd miniapp && npm install && npm run build
-    staticPublishPath: miniapp/dist
+    rootDir: miniapp
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
     envVars:
       - key: VITE_API_URL
         sync: false
