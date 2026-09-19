@@ -7,7 +7,7 @@ from datetime import datetime
 
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import CommandStart
-from aiogram.types import Message
+from aiogram.types import FSInputFile, Message
 from dotenv import load_dotenv
 
 import ai
@@ -18,18 +18,20 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 dp = Dispatcher()
 
+INTRO_VIDEO_PATH = os.path.join(os.path.dirname(__file__), "assets", "ark-intro.mp4")
+
 WELCOME = """\
-Привет! Я ARK PLANNER — твой трекер жизни.
+🅰️ <b>ARK PLANNER</b> — твоя жизнь в одном сообщении
 
-Просто пиши мне что происходит: "купить молоко завтра", "завтра в 15:00 встреча с Андреем", \
-"потратил 500 на такси", "съел борщ" — я сам разберусь, куда это записать: задачи, встречи, \
-деньги, еда, заметки или ритуалы.
+Просто пиши или надиктуй: «завтра в 15:00 встреча с Андреем», «потратил 500 на такси», \
+«съел борщ» — сам разложу по разделам: задачи, встречи, деньги, еда, заметки, ритуалы.
 
-Можно присылать фото:
-• чек — занесу трату
-• тарелка с едой — прикину калории и БЖУ
+📸 Фото чека → трата
+🍽 Фото тарелки → калории и БЖУ
+🔔 Утренний дайджест, напоминания о встречах и приёмах пищи
 
-Бесплатно — {limit} AI-действия в день. Дальше нужен Pro.
+<b>Free</b> — все разделы, {limit} AI-действия в день
+<b>Pro</b> — 199₽/мес, безлимит
 
 Команда /summary — сводка за сегодня.
 """.format(limit=db.FREE_DAILY_AI_LIMIT)
@@ -51,7 +53,12 @@ async def _get_user(message: Message) -> dict:
 @dp.message(CommandStart())
 async def on_start(message: Message):
     await _get_user(message)
-    await message.answer(WELCOME)
+    if os.path.exists(INTRO_VIDEO_PATH):
+        await message.answer_animation(
+            FSInputFile(INTRO_VIDEO_PATH), caption=WELCOME, parse_mode="HTML"
+        )
+    else:
+        await message.answer(WELCOME, parse_mode="HTML")
 
 
 @dp.message(F.text == "/summary")
