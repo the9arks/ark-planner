@@ -1,5 +1,13 @@
 import { useEffect, useState } from "react";
-import { getDigest, getSection, setTimeSetting, type Digest, type Tier } from "./api";
+import {
+  getDigest,
+  getSection,
+  setTimeSetting,
+  setTimezone,
+  submitEntry,
+  type Digest,
+  type Tier,
+} from "./api";
 
 type TabId =
   | "digest"
@@ -174,16 +182,54 @@ function EmptyView({ label, hint }: { label: string; hint: string }) {
   );
 }
 
-function ComposerBar() {
+function ComposerBar({ onSubmitted }: { onSubmitted: () => void }) {
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+
+  async function handleSubmit() {
+    const trimmed = text.trim();
+    if (!trimmed || busy) return;
+    setBusy(true);
+    setToast(null);
+    const result = await submitEntry(trimmed);
+    setBusy(false);
+    if (result.ok) {
+      setText("");
+      setToast(result.reply ?? "Записал");
+      onSubmitted();
+    } else if (result.error === "quota_exceeded") {
+      setToast("Лимит AI-действий на сегодня исчерпан — загляни в «Настройки» за тарифом");
+    } else {
+      setToast("Не получилось записать, попробуй ещё раз");
+    }
+    setTimeout(() => setToast(null), 4000);
+  }
+
   return (
-    <div className="fixed bottom-[76px] left-0 right-0 px-4">
-      <div className="mx-auto max-w-[420px] flex items-center gap-2 rounded-full border border-white/10 bg-[#0f0f12]/95 backdrop-blur px-4 py-3">
+    <div className="mx-auto max-w-[420px] px-4">
+      {toast && (
+        <div className="mb-2 rounded-xl border border-white/10 bg-[#0f0f12]/95 backdrop-blur px-4 py-2 text-xs text-white/70">
+          {toast}
+        </div>
+      )}
+      <div className="flex items-center gap-2 rounded-full border border-white/10 bg-[#0f0f12]/95 backdrop-blur px-4 py-3">
         <input
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") handleSubmit();
+          }}
+          disabled={busy}
           className="flex-1 bg-transparent text-sm outline-none placeholder:text-white/30"
-          placeholder="Скажи или напиши что-нибудь…"
+          placeholder="Напиши что-нибудь…"
         />
-        <button className="w-8 h-8 rounded-full bg-white text-black text-sm grid place-items-center">
-          →
+        <button
+          onClick={handleSubmit}
+          disabled={busy || !text.trim()}
+          className="w-8 h-8 rounded-full bg-white text-black text-sm grid place-items-center disabled:opacity-40"
+        >
+          {busy ? "…" : "→"}
         </button>
       </div>
     </div>
@@ -335,12 +381,52 @@ function TimeRow({
   );
 }
 
+const TZ_OPTIONS = Array.from({ length: 27 }, (_, i) => i - 12); // UTC-12 .. UTC+14
+
+function TimezoneRow({
+  value,
+  onSaved,
+}: {
+  value: number;
+  onSaved: (tz: number) => void;
+}) {
+  const [saving, setSaving] = useState(false);
+  return (
+    <div className="flex items-center justify-between rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3">
+      <span className="text-sm">Часовой пояс</span>
+      <select
+        value={value}
+        disabled={saving}
+        onChange={async (e) => {
+          const tz = Number(e.target.value);
+          setSaving(true);
+          try {
+            await setTimezone(tz);
+            onSaved(tz);
+          } finally {
+            setSaving(false);
+          }
+        }}
+        className="bg-white/[0.06] border border-white/10 rounded-lg px-2 py-1 text-sm text-white [color-scheme:dark]"
+      >
+        {TZ_OPTIONS.map((tz) => (
+          <option key={tz} value={tz}>
+            UTC{tz >= 0 ? "+" : ""}{tz}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
 function SettingsView({
   digest,
   onTimeSaved,
+  onTzSaved,
 }: {
   digest: Digest | null;
   onTimeSaved: (field: string, value: string) => void;
+  onTzSaved: (tz: number) => void;
 }) {
   if (!digest) {
     return <div className="text-white/30 text-sm text-center py-20">Загрузка…</div>;
@@ -355,6 +441,8 @@ function SettingsView({
         <div className="text-2xl font-semibold mt-1">{TIER_LABELS[user.tier]}</div>
         <div className="text-white/50 text-sm mt-2">{limitLabel}</div>
       </div>
+
+      <TimezoneRow value={user.tz_offset} onSaved={onTzSaved} />
 
       <div className="text-[11px] uppercase tracking-wider text-white/40 mt-2">
         Время напоминаний
@@ -390,11 +478,16 @@ function SettingsView({
 export default function App() {
   const [tab, setTab] = useState<TabId>("digest");
   const [digest, setDigest] = useState<Digest | null>(null);
+  const [refreshTick, setRefreshTick] = useState(0);
   const activeIndex = TABS.findIndex((t) => t.id === tab);
 
   useEffect(() => {
     getDigest().then(setDigest).catch(() => setDigest(null));
-  }, []);
+  }, [refreshTick]);
+
+  function handleSubmitted() {
+    setRefreshTick((t) => t + 1);
+  }
 
   return (
     <div className="min-h-screen max-w-[480px] mx-auto flex flex-col relative">
@@ -408,10 +501,11 @@ export default function App() {
         </span>
       </header>
 
-      <main className="flex-1 overflow-y-auto px-4 py-4 pb-56">
+      <main className="flex-1 overflow-y-auto px-4 py-4 pb-44">
         {tab === "digest" && <DigestView digest={digest} />}
         {tab === "tasks" && (
           <ListView<Task>
+            key={refreshTick}
             section="tasks"
             emptyLabel="Задач пока нет"
             emptyHint="Напиши боту: «купить молоко завтра»"
@@ -420,6 +514,7 @@ export default function App() {
         )}
         {tab === "notes" && (
           <ListView<Note>
+            key={refreshTick}
             section="notes"
             emptyLabel="Заметок пока нет"
             emptyHint="Скинь мысль текстом или голосом"
@@ -428,6 +523,7 @@ export default function App() {
         )}
         {tab === "money" && (
           <ListView<MoneyEntry>
+            key={refreshTick}
             section="money"
             emptyLabel="Трат пока нет"
             emptyHint="Пришли фото чека — занесу автоматически"
@@ -439,6 +535,7 @@ export default function App() {
         )}
         {tab === "meetings" && (
           <ListView<Meeting>
+            key={refreshTick}
             section="meetings"
             emptyLabel="Встреч пока нет"
             emptyHint="Напиши: «завтра в 15:00 встреча с Андреем»"
@@ -450,6 +547,7 @@ export default function App() {
         )}
         {tab === "food" && (
           <ListView<FoodEntry>
+            key={refreshTick}
             section="food"
             emptyLabel="Приёмов пищи пока нет"
             emptyHint="Сфоткай тарелку — посчитаю калории и БЖУ"
@@ -459,7 +557,7 @@ export default function App() {
             })}
           />
         )}
-        {tab === "rituals" && <HabitsView />}
+        {tab === "rituals" && <HabitsView key={refreshTick} />}
         {tab === "settings" && (
           <SettingsView
             digest={digest}
@@ -468,28 +566,36 @@ export default function App() {
                 prev ? { ...prev, user: { ...prev.user, [field]: value } } : prev
               )
             }
+            onTzSaved={(tz) =>
+              setDigest((prev) =>
+                prev ? { ...prev, user: { ...prev.user, tz_offset: tz } } : prev
+              )
+            }
           />
         )}
       </main>
 
-      <ComposerBar />
-
-      <nav className="fixed bottom-0 left-0 right-0 border-t border-white/10 bg-[#0b0b0d]/95 backdrop-blur">
-        <div className="mx-auto max-w-[480px] grid grid-cols-4 text-center">
-          {TABS.map((t, i) => (
-            <button
-              key={t.id}
-              onClick={() => setTab(t.id)}
-              className={`py-2 flex flex-col items-center gap-0.5 ${
-                i === activeIndex ? "text-white" : "text-white/35"
-              }`}
-            >
-              <span className="text-[10px] font-mono">{t.num}</span>
-              <span className="text-[11px]">{t.label}</span>
-            </button>
-          ))}
+      <div className="fixed bottom-0 left-0 right-0 bg-[#0b0b0d]">
+        <div className="pt-3 pb-2">
+          <ComposerBar onSubmitted={handleSubmitted} />
         </div>
-      </nav>
+        <nav className="border-t border-white/10">
+          <div className="mx-auto max-w-[480px] grid grid-cols-4 text-center">
+            {TABS.map((t, i) => (
+              <button
+                key={t.id}
+                onClick={() => setTab(t.id)}
+                className={`py-2 flex flex-col items-center gap-0.5 ${
+                  i === activeIndex ? "text-white" : "text-white/35"
+                }`}
+              >
+                <span className="text-[10px] font-mono">{t.num}</span>
+                <span className="text-[11px]">{t.label}</span>
+              </button>
+            ))}
+          </div>
+        </nav>
+      </div>
     </div>
   );
 }

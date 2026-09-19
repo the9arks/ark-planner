@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 import re
 
@@ -20,6 +20,7 @@ from aiogram.types import (
 from dotenv import load_dotenv
 
 import ai
+import core
 import db
 
 load_dotenv()
@@ -28,11 +29,6 @@ logging.basicConfig(level=logging.INFO)
 dp = Dispatcher()
 
 INTRO_VIDEO_PATH = os.path.join(os.path.dirname(__file__), "assets", "ark-intro.mp4")
-
-WEEKDAY_RU = {
-    "mon": "Пн", "tue": "Вт", "wed": "Ср", "thu": "Чт",
-    "fri": "Пт", "sat": "Сб", "sun": "Вс",
-}
 
 MINIAPP_URL = os.environ.get("MINIAPP_URL", "https://ark-planner-miniapp.onrender.com")
 SUPPORT_URL = "https://t.me/ark_planner_support"
@@ -249,155 +245,6 @@ async def on_set_time(message: Message):
     await message.answer(f"Готово: «{label}» теперь в {hour:02d}:{minute:02d}.")
 
 
-# Claude returns naive local datetimes ("2026-09-20T15:00:00"); users are assumed to be
-# in Moscow time for now, so tag them with the correct UTC offset before they hit Postgres
-# (which otherwise assumes UTC and shifts the wall-clock time when read back).
-USER_TZ_OFFSET = "+03:00"
-
-
-def _localize(naive_iso: str | None) -> str | None:
-    if not naive_iso:
-        return None
-    if "+" in naive_iso or naive_iso.endswith("Z"):
-        return naive_iso
-    return naive_iso + USER_TZ_OFFSET
-
-
-async def _store_entry(user_id: str, data: dict) -> dict:
-    entry_type = data.get("entry_type")
-    if entry_type == "task":
-        await db.add_task(
-            user_id,
-            data.get("title") or data.get("description"),
-            _localize(data.get("starts_at")),
-            remind=bool(data.get("remind")),
-        )
-    elif entry_type == "meeting":
-        await db.add_meeting(
-            user_id,
-            data.get("title") or data.get("description"),
-            data.get("with_who"),
-            _localize(data.get("starts_at")),
-        )
-    elif entry_type == "money":
-        await db.add_money(
-            user_id,
-            data.get("amount"),
-            data.get("category"),
-            data.get("description"),
-            data.get("comment"),
-        )
-    elif entry_type == "food":
-        await db.add_food(
-            user_id,
-            data.get("description"),
-            data.get("calories"),
-            data.get("protein_g"),
-            data.get("fat_g"),
-            data.get("carbs_g"),
-        )
-    elif entry_type == "ritual":
-        title = data.get("title") or data.get("description")
-        action = data.get("habit_action")
-
-        if action == "relapse":
-            habit = await db.find_habit(user_id, title)
-            if habit:
-                today_iso = datetime.now().date().isoformat()
-                await db.reset_habit_streak(habit["id"], today_iso)
-                data["streak_days"] = 0
-        elif action == "define" or (data.get("days_of_week") and data.get("start_time")):
-            habit = await db.upsert_habit(
-                user_id,
-                title,
-                data.get("days_of_week"),
-                data.get("start_time"),
-                data.get("reminder_lead_minutes"),
-                data.get("habit_type") or "build",
-            )
-            data["streak_days"] = _streak_days(habit.get("streak_start_date"))
-        elif action == "checkin":
-            habit = await db.find_habit(user_id, title)
-            await db.add_ritual_log(user_id, habit["title"] if habit else title)
-            if habit:
-                data["streak_days"] = _streak_days(habit.get("streak_start_date"))
-        else:
-            await db.add_ritual_log(user_id, title)
-    else:
-        await db.add_note(user_id, data.get("description") or "")
-    return data
-
-
-def _streak_days(streak_start_date: str | None) -> int | None:
-    if not streak_start_date:
-        return None
-    start = datetime.fromisoformat(streak_start_date).date()
-    return (datetime.now().date() - start).days
-
-
-def _format_when(iso_str: str | None) -> str:
-    if not iso_str:
-        return ""
-    try:
-        dt = datetime.fromisoformat(iso_str)
-    except ValueError:
-        return iso_str
-    today = datetime.now().date()
-    if dt.date() == today:
-        return f"сегодня в {dt.strftime('%H:%M')}"
-    if dt.date().toordinal() - today.toordinal() == 1:
-        return f"завтра в {dt.strftime('%H:%M')}"
-    return dt.strftime("%d.%m в %H:%M")
-
-
-def _format_reply(data: dict) -> str:
-    entry_type = data.get("entry_type")
-    if entry_type == "task":
-        when = _format_when(data.get("starts_at"))
-        due = f" (до {when})" if when else ""
-        reply = f"✅ Задача: {data.get('title') or data.get('description')}{due}"
-        if data.get("remind") and when:
-            reply += f"\n🔔 Напомню {when}"
-    elif entry_type == "meeting":
-        when = _format_when(data.get("starts_at"))
-        when_str = f" {when}" if when else ""
-        with_who = f" с {data['with_who']}" if data.get("with_who") else ""
-        reply = f"🤝 Встреча{with_who}{when_str}"
-    elif entry_type == "money":
-        reply = f"💸 Записал: {data.get('amount')}₽ — {data.get('category') or data.get('description')}"
-    elif entry_type == "food":
-        reply = f"🍽 Записал: {data.get('description')} (~{data.get('calories')} ккал)"
-    elif entry_type == "ritual":
-        title = data.get("title") or data.get("description")
-        action = data.get("habit_action")
-        streak = data.get("streak_days")
-
-        if action == "relapse":
-            reply = f"Бывает 💪 «{title}»: начинаем стрик заново — сегодня день 0."
-        elif action == "define" and data.get("days_of_week") and data.get("start_time"):
-            days = ", ".join(WEEKDAY_RU.get(d, d) for d in data["days_of_week"])
-            lead = data.get("reminder_lead_minutes") or 60
-            reply = (
-                f"🔁 Привычка настроена: «{title}»\n"
-                f"{days}, в {data['start_time'][:5]}, напомню за {lead} мин"
-            )
-        elif action == "define":
-            kind = "Бросаем" if data.get("habit_type") == "quit" else "Начинаем"
-            reply = f"🎯 {kind}: «{title}». Пиши сюда о прогрессе — буду считать дни."
-        elif action == "checkin":
-            streak_str = f" · день {streak}" if streak is not None else ""
-            reply = f"✅ «{title}»{streak_str} — так держать."
-        else:
-            reply = f"🔁 Ритуал: {title}"
-    else:
-        reply = f"📝 Записал: {data.get('description')}"
-
-    comment = data.get("comment")
-    if comment:
-        reply += f"\n\n{comment}"
-    return reply
-
-
 @dp.message(F.photo)
 async def on_photo(message: Message):
     user = await _get_user(message)
@@ -411,9 +258,12 @@ async def on_photo(message: Message):
     image_bytes = buffer.read()
 
     try:
-        data = ai.classify_photo(image_bytes, "image/jpeg", caption=message.caption)
-        await _store_entry(user["id"], data)
-        reply = _format_reply(data)
+        tz_offset = user.get("tz_offset", 3)
+        data = ai.classify_photo(
+            image_bytes, "image/jpeg", caption=message.caption, tz_offset=tz_offset
+        )
+        await core.store_entry(user["id"], data, tz_offset)
+        reply = core.format_reply(data)
     except Exception:
         logging.exception("on_photo failed")
         await message.answer("Не смог обработать фото, попробуй ещё раз.")
@@ -430,9 +280,10 @@ async def on_text(message: Message):
         return
 
     try:
-        data = ai.classify_text(message.text)
-        await _store_entry(user["id"], data)
-        reply = _format_reply(data)
+        tz_offset = user.get("tz_offset", 3)
+        data = ai.classify_text(message.text, tz_offset=tz_offset)
+        await core.store_entry(user["id"], data, tz_offset)
+        reply = core.format_reply(data)
     except Exception:
         logging.exception("on_text failed")
         await message.answer("Не смог разобрать сообщение, попробуй переформулировать.")

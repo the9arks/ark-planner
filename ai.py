@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 from anthropic import Anthropic
 
@@ -18,15 +18,24 @@ def get_client() -> Anthropic:
     return _client
 
 
-def _system_prompt() -> str:
-    now = datetime.now()
+def _system_prompt(tz_offset: int = 3) -> str:
+    now = datetime.now(timezone(timedelta(hours=tz_offset)))
     return f"""\
 Ты — движок телеграм-бота ARK, личного трекера жизни. Пользователь присылает текстовые \
 заметки или фото (чек / тарелка с едой), а ты извлекаешь из них структурированные данные.
 
-Сегодня: {now.strftime('%Y-%m-%d (%A)')}, время: {now.strftime('%H:%M')}. Используй это, \
+Сегодня у пользователя: {now.strftime('%Y-%m-%d (%A)')}, время: {now.strftime('%H:%M')} \
+(часовой пояс пользователя, UTC{'+' if tz_offset >= 0 else ''}{tz_offset}). Используй это, \
 чтобы превращать относительные даты ("завтра", "в пятницу", "через час") в точный ISO 8601 \
-datetime ("2026-09-20T15:00:00").
+datetime без указания зоны, в местном времени пользователя ("2026-09-20T15:00:00").
+
+Разговорное время суток (обязательно учитывай при разборе часов без AM/PM):
+- "утра" → 5-11 часов ("7 утра" = 07:00)
+- "дня" → 12-17 часов ("2 дня" = 14:00, "12 дня" = 12:00)
+- "вечера" → 18-23 часа ("6 вечера" = 18:00, "10 вечера" = 22:00)
+- "ночи" → 0-4 часа ("2 ночи" = 02:00)
+- Без уточнения и число ≤ 7 — считай вечером/днём по здравому смыслу (например просто "в 6" \
+  без контекста, скорее всего, 18:00, не 06:00).
 
 Типы записей (entry_type):
 - "task" — задача/дело, в том числе разовое событие с напоминанием ("купить молоко", \
@@ -120,17 +129,19 @@ def _parse_json_response(text: str) -> dict:
     return json.loads(text)
 
 
-def classify_text(user_text: str) -> dict:
+def classify_text(user_text: str, tz_offset: int = 3) -> dict:
     response = get_client().messages.create(
         model=MODEL,
-        max_tokens=500,
-        system=_system_prompt(),
+        max_tokens=800,
+        system=_system_prompt(tz_offset),
         messages=[{"role": "user", "content": user_text}],
     )
     return _parse_json_response(_extract_text(response))
 
 
-def classify_photo(image_bytes: bytes, media_type: str, caption: str | None = None) -> dict:
+def classify_photo(
+    image_bytes: bytes, media_type: str, caption: str | None = None, tz_offset: int = 3
+) -> dict:
     import base64
 
     b64_image = base64.b64encode(image_bytes).decode("utf-8")
@@ -151,8 +162,8 @@ def classify_photo(image_bytes: bytes, media_type: str, caption: str | None = No
     ]
     response = get_client().messages.create(
         model=MODEL,
-        max_tokens=500,
-        system=_system_prompt(),
+        max_tokens=800,
+        system=_system_prompt(tz_offset),
         messages=[{"role": "user", "content": content}],
     )
     return _parse_json_response(_extract_text(response))

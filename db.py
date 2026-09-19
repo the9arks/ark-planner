@@ -248,7 +248,7 @@ def _get_all_habits_sync() -> list[dict]:
     return (
         get_client()
         .table("rituals")
-        .select("*, users(telegram_id)")
+        .select("*, users(telegram_id, tz_offset)")
         .eq("is_habit", True)
         .not_.is_("start_time", "null")
         .execute()
@@ -276,6 +276,14 @@ def _set_user_time_sync(user_id: str, field: str, time_str: str):
 
 async def set_user_time(user_id: str, field: str, time_str: str):
     await _run(_set_user_time_sync, user_id, field, time_str)
+
+
+def _set_user_tz_offset_sync(user_id: str, tz_offset: int):
+    get_client().table("users").update({"tz_offset": tz_offset}).eq("id", user_id).execute()
+
+
+async def set_user_tz_offset(user_id: str, tz_offset: int):
+    await _run(_set_user_tz_offset_sync, user_id, tz_offset)
 
 
 def _get_tasks_needing_reminder_sync(window_start: str, window_end: str) -> list[dict]:

@@ -7,9 +7,13 @@ import aiohttp
 
 import db
 
-MOSCOW_TZ = timezone(timedelta(hours=3))
+UTC = timezone.utc
 
 WEEKDAY_CODES = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+
+
+def _user_now(user: dict) -> datetime:
+    return datetime.now(timezone(timedelta(hours=user.get("tz_offset", 3))))
 
 
 async def _send_message(telegram_id: int, text: str):
@@ -30,9 +34,10 @@ def _in_window(now: datetime, hour: int, minute: int, span_minutes: int = 10) ->
     return target <= now < target + timedelta(minutes=span_minutes)
 
 
-async def _send_morning_digests(now: datetime):
-    today_iso = now.date().isoformat()
+async def _send_morning_digests(_unused_now: datetime):
     for user in await db.get_all_users():
+        now = _user_now(user)
+        today_iso = now.date().isoformat()
         hour, minute = _parse_hhmm(user.get("morning_digest_time") or "08:00")
         if not _in_window(now, hour, minute):
             continue
@@ -43,7 +48,7 @@ async def _send_morning_digests(now: datetime):
         if agenda["meetings"]:
             lines.append("\n🤝 Встречи:")
             for m in agenda["meetings"]:
-                dt = datetime.fromisoformat(m["starts_at"]).astimezone(MOSCOW_TZ)
+                dt = datetime.fromisoformat(m["starts_at"]).astimezone(now.tzinfo)
                 who = f" с {m['with_who']}" if m.get("with_who") else ""
                 lines.append(f"  {dt.strftime('%H:%M')}{who}")
         if agenda["tasks"]:
@@ -64,10 +69,11 @@ MEAL_CONFIG = {
 }
 
 
-async def _send_meal_reminders(now: datetime):
-    today_iso = now.date().isoformat()
+async def _send_meal_reminders(_unused_now: datetime):
     for meal, (time_field, since_hour, label) in MEAL_CONFIG.items():
         for user in await db.get_all_users():
+            now = _user_now(user)
+            today_iso = now.date().isoformat()
             hour, minute = _parse_hhmm(user.get(time_field) or "09:30")
             if not _in_window(now, hour, minute):
                 continue
@@ -113,10 +119,16 @@ async def _send_task_reminders(now: datetime):
         await db.mark_task_reminded(t["id"])
 
 
-async def _send_habit_reminders(now: datetime):
-    today_iso = now.date().isoformat()
-    today_code = WEEKDAY_CODES[now.weekday()]
+async def _send_habit_reminders(_unused_now: datetime):
     for habit in await db.get_all_habits():
+        habit_user = habit.get("users") or {}
+        telegram_id = habit_user.get("telegram_id")
+        if not telegram_id:
+            continue
+        now = datetime.now(timezone(timedelta(hours=habit_user.get("tz_offset", 3))))
+        today_iso = now.date().isoformat()
+        today_code = WEEKDAY_CODES[now.weekday()]
+
         if habit.get("last_reminded_date") == today_iso:
             continue
         days = habit.get("days_of_week") or []
@@ -128,9 +140,6 @@ async def _send_habit_reminders(now: datetime):
         remind_at = start_dt - timedelta(minutes=lead)
         if not (remind_at <= now < remind_at + timedelta(minutes=10)):
             continue
-        telegram_id = (habit.get("users") or {}).get("telegram_id")
-        if not telegram_id:
-            continue
         await _send_message(
             telegram_id,
             f"🔔 «{habit['title']}» в {habit['start_time'][:5]} (через {lead} мин)",
@@ -139,7 +148,7 @@ async def _send_habit_reminders(now: datetime):
 
 
 async def run_tick():
-    now = datetime.now(MOSCOW_TZ)
+    now = datetime.now(UTC)
     await _send_morning_digests(now)
     await _send_meal_reminders(now)
     await _send_meeting_reminders(now)

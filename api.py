@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import logging
 import os
 from urllib.parse import parse_qsl
 
 from aiohttp import web
 from aiohttp_cors import ResourceOptions, setup as cors_setup
 
+import ai
+import core
 import db
 
 ALLOW_DEV_AUTH = os.environ.get("ALLOW_DEV_AUTH", "true").lower() == "true"
@@ -78,6 +81,7 @@ async def get_digest(request: web.Request):
                 "breakfast_reminder_time": user.get("breakfast_reminder_time"),
                 "lunch_reminder_time": user.get("lunch_reminder_time"),
                 "dinner_reminder_time": user.get("dinner_reminder_time"),
+                "tz_offset": user.get("tz_offset", 3),
             },
             "digest": digest,
         }
@@ -110,6 +114,50 @@ async def set_time_setting(request: web.Request):
 
     await db.set_user_time(user["id"], field, time_str.strip())
     return web.json_response({"ok": True})
+
+
+@routes.post("/api/settings/timezone")
+async def set_timezone_setting(request: web.Request):
+    user = await _authenticate(request)
+    if not user:
+        return web.json_response({"error": "unauthorized"}, status=401)
+
+    body = await request.json()
+    try:
+        tz_offset = int(body.get("tz_offset"))
+    except (TypeError, ValueError):
+        return web.json_response({"error": "invalid_offset"}, status=400)
+    if not -12 <= tz_offset <= 14:
+        return web.json_response({"error": "invalid_offset"}, status=400)
+
+    await db.set_user_tz_offset(user["id"], tz_offset)
+    return web.json_response({"ok": True})
+
+
+@routes.post("/api/entries")
+async def create_entry(request: web.Request):
+    user = await _authenticate(request)
+    if not user:
+        return web.json_response({"error": "unauthorized"}, status=401)
+
+    body = await request.json()
+    text = (body.get("text") or "").strip()
+    if not text:
+        return web.json_response({"error": "empty_text"}, status=400)
+
+    if not await db.check_and_increment_quota(user):
+        return web.json_response({"error": "quota_exceeded"}, status=429)
+
+    tz_offset = user.get("tz_offset", 3)
+    try:
+        data = ai.classify_text(text, tz_offset=tz_offset)
+        data = await core.store_entry(user["id"], data, tz_offset)
+        reply = core.format_reply(data)
+    except Exception:
+        logging.exception("create_entry failed")
+        return web.json_response({"error": "processing_failed"}, status=500)
+
+    return web.json_response({"reply": reply, "entry_type": data.get("entry_type")})
 
 
 _LIST_FNS = {

@@ -56,6 +56,7 @@ export interface Digest {
     breakfast_reminder_time: string;
     lunch_reminder_time: string;
     dinner_reminder_time: string;
+    tz_offset: number;
   };
   digest: {
     tasks_today: number;
@@ -76,4 +77,31 @@ export function getSection<T = Record<string, unknown>>(section: string) {
 
 export function setTimeSetting(field: string, value: string) {
   return apiPost<{ ok: boolean }>("/api/settings/time", { field, value });
+}
+
+export function setTimezone(tz_offset: number) {
+  return apiPost<{ ok: boolean }>("/api/settings/timezone", { tz_offset });
+}
+
+export interface EntryResult {
+  ok: boolean;
+  reply?: string;
+  entry_type?: string;
+  error?: string;
+}
+
+export async function submitEntry(text: string): Promise<EntryResult> {
+  const url = new URL(`${API_URL}/api/entries`);
+  const headers = _authHeaders(url);
+  headers["Content-Type"] = "application/json";
+  const res = await fetch(url.toString(), {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ text }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    return { ok: false, error: data.error ?? "unknown_error" };
+  }
+  return { ok: true, reply: data.reply, entry_type: data.entry_type };
 }
