@@ -96,6 +96,17 @@ async def get_section(request: web.Request):
     return web.json_response({"items": items})
 
 
+@routes.get("/cron/{secret}")
+async def cron_tick(request: web.Request):
+    if request.match_info["secret"] != os.environ.get("CRON_SECRET"):
+        return web.json_response({"error": "forbidden"}, status=403)
+
+    import reminders
+
+    await reminders.run_tick()
+    return web.json_response({"ok": True})
+
+
 def create_app() -> web.Application:
     app = web.Application()
     app.add_routes(routes)

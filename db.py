@@ -196,3 +196,102 @@ async def list_food(user_id: str, limit: int = 50) -> list[dict]:
 
 async def list_rituals(user_id: str, limit: int = 50) -> list[dict]:
     return await _run(_list_sync, "ritual_logs", user_id, limit)
+
+
+def _get_all_users_sync() -> list[dict]:
+    return get_client().table("users").select("*").execute().data
+
+
+async def get_all_users() -> list[dict]:
+    return await _run(_get_all_users_sync)
+
+
+def _get_today_agenda_sync(user_id: str) -> dict:
+    db = get_client()
+    today = date.today().isoformat()
+    tomorrow = (date.today().toordinal() + 1)
+    from datetime import date as _date
+
+    tomorrow_iso = _date.fromordinal(tomorrow).isoformat()
+
+    meetings = (
+        db.table("meetings")
+        .select("*")
+        .eq("user_id", user_id)
+        .gte("starts_at", today)
+        .lt("starts_at", tomorrow_iso)
+        .order("starts_at")
+        .execute()
+        .data
+    )
+    tasks = (
+        db.table("tasks")
+        .select("*")
+        .eq("user_id", user_id)
+        .eq("done", False)
+        .gte("due_at", today)
+        .lt("due_at", tomorrow_iso)
+        .order("due_at")
+        .execute()
+        .data
+    )
+    return {"meetings": meetings, "tasks": tasks}
+
+
+async def get_today_agenda(user_id: str) -> dict:
+    return await _run(_get_today_agenda_sync, user_id)
+
+
+def _has_food_entry_since_sync(user_id: str, since_iso: str) -> bool:
+    result = (
+        get_client()
+        .table("food_entries")
+        .select("id", count="exact")
+        .eq("user_id", user_id)
+        .gte("created_at", since_iso)
+        .execute()
+    )
+    return (result.count or 0) > 0
+
+
+async def has_food_entry_since(user_id: str, since_iso: str) -> bool:
+    return await _run(_has_food_entry_since_sync, user_id, since_iso)
+
+
+def _mark_date_field_sync(user_id: str, field: str, value: str):
+    get_client().table("users").update({field: value}).eq("id", user_id).execute()
+
+
+async def mark_morning_digest_sent(user_id: str, today_iso: str):
+    await _run(_mark_date_field_sync, user_id, "last_morning_digest_date", today_iso)
+
+
+async def mark_meal_reminder_sent(user_id: str, meal: str, today_iso: str):
+    field = f"last_{meal}_reminder_date"
+    await _run(_mark_date_field_sync, user_id, field, today_iso)
+
+
+def _get_meetings_needing_reminder_sync(field: str, window_start: str, window_end: str) -> list[dict]:
+    db = get_client()
+    meetings = (
+        db.table("meetings")
+        .select("*, users(telegram_id)")
+        .eq(field, False)
+        .gte("starts_at", window_start)
+        .lt("starts_at", window_end)
+        .execute()
+        .data
+    )
+    return meetings
+
+
+async def get_meetings_needing_reminder(field: str, window_start: str, window_end: str) -> list[dict]:
+    return await _run(_get_meetings_needing_reminder_sync, field, window_start, window_end)
+
+
+def _mark_meeting_reminded_sync(meeting_id: str, field: str):
+    get_client().table("meetings").update({field: True}).eq("id", meeting_id).execute()
+
+
+async def mark_meeting_reminded(meeting_id: str, field: str):
+    await _run(_mark_meeting_reminded_sync, meeting_id, field)

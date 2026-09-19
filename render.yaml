@@ -18,6 +18,10 @@ services:
         sync: false
       - key: WEBHOOK_SECRET
         sync: false
+      - key: CRON_SECRET
+        sync: false
+      - key: ALLOW_DEV_AUTH
+        value: "false"
 
   - type: web
     name: ark-planner-miniapp
