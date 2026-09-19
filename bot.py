@@ -5,8 +5,10 @@ import logging
 import os
 from datetime import datetime
 
+import re
+
 from aiogram import Bot, Dispatcher, F
-from aiogram.filters import CommandStart
+from aiogram.filters import Command, CommandStart
 from aiogram.types import FSInputFile, Message
 from dotenv import load_dotenv
 
@@ -19,6 +21,11 @@ logging.basicConfig(level=logging.INFO)
 dp = Dispatcher()
 
 INTRO_VIDEO_PATH = os.path.join(os.path.dirname(__file__), "assets", "ark-intro.mp4")
+
+WEEKDAY_RU = {
+    "mon": "Пн", "tue": "Вт", "wed": "Ср", "thu": "Чт",
+    "fri": "Пт", "sat": "Сб", "sun": "Вс",
+}
 
 WELCOME = """\
 🅰️ <b>ARK PLANNER</b> — твоя жизнь в одном сообщении
@@ -34,6 +41,9 @@ WELCOME = """\
 <b>Pro</b> — 199₽/мес, безлимит
 
 Команда /summary — сводка за сегодня.
+Время напоминаний своё: /digest_time, /breakfast_time, /lunch_time, /dinner_time (например /digest_time 09:30).
+
+Привычки по дням: «тренировка бокс пн ср пт в 18:00, напомни за час».
 """.format(limit=db.FREE_DAILY_AI_LIMIT)
 
 QUOTA_EXCEEDED = (
@@ -74,6 +84,35 @@ async def on_summary(message: Message):
         f"🍽 Приёмы пищи: {digest['food_today']}",
     ]
     await message.answer("\n".join(lines))
+
+
+TIME_COMMANDS = {
+    "digest_time": ("morning_digest_time", "Утренний дайджест"),
+    "breakfast_time": ("breakfast_reminder_time", "Напоминание про завтрак"),
+    "lunch_time": ("lunch_reminder_time", "Напоминание про обед"),
+    "dinner_time": ("dinner_reminder_time", "Напоминание про ужин"),
+}
+
+
+@dp.message(Command(*TIME_COMMANDS.keys()))
+async def on_set_time(message: Message):
+    command = message.text.split()[0].lstrip("/").split("@")[0]
+    field, label = TIME_COMMANDS[command]
+    parts = message.text.split(maxsplit=1)
+
+    if len(parts) < 2 or not re.fullmatch(r"[0-2]?\d:[0-5]\d", parts[1].strip()):
+        await message.answer(f"Формат: /{command} ЧЧ:ММ, например /{command} 09:30")
+        return
+
+    time_str = parts[1].strip()
+    hour, minute = map(int, time_str.split(":"))
+    if hour > 23:
+        await message.answer("Часы должны быть от 00 до 23.")
+        return
+
+    user = await _get_user(message)
+    await db.set_user_time(user["id"], field, f"{hour:02d}:{minute:02d}")
+    await message.answer(f"Готово: «{label}» теперь в {hour:02d}:{minute:02d}.")
 
 
 # Claude returns naive local datetimes ("2026-09-20T15:00:00"); users are assumed to be
@@ -121,7 +160,17 @@ async def _store_entry(user_id: str, data: dict):
             data.get("carbs_g"),
         )
     elif entry_type == "ritual":
-        await db.add_ritual_log(user_id, data.get("title") or data.get("description"))
+        title = data.get("title") or data.get("description")
+        if data.get("days_of_week") and data.get("start_time"):
+            await db.upsert_habit(
+                user_id,
+                title,
+                data["days_of_week"],
+                data["start_time"],
+                data.get("reminder_lead_minutes") or 60,
+            )
+        else:
+            await db.add_ritual_log(user_id, title)
     else:
         await db.add_note(user_id, data.get("description") or "")
 
@@ -157,7 +206,16 @@ def _format_reply(data: dict) -> str:
     elif entry_type == "food":
         reply = f"🍽 Записал: {data.get('description')} (~{data.get('calories')} ккал)"
     elif entry_type == "ritual":
-        reply = f"🔁 Ритуал: {data.get('title') or data.get('description')}"
+        title = data.get("title") or data.get("description")
+        if data.get("days_of_week") and data.get("start_time"):
+            days = ", ".join(WEEKDAY_RU.get(d, d) for d in data["days_of_week"])
+            lead = data.get("reminder_lead_minutes") or 60
+            reply = (
+                f"🔁 Привычка настроена: «{title}»\n"
+                f"{days}, в {data['start_time'][:5]}, напомню за {lead} мин"
+            )
+        else:
+            reply = f"🔁 Ритуал: {title}"
     else:
         reply = f"📝 Записал: {data.get('description')}"
 

@@ -9,6 +9,8 @@ import db
 
 MOSCOW_TZ = timezone(timedelta(hours=3))
 
+WEEKDAY_CODES = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+
 
 async def _send_message(telegram_id: int, text: str):
     token = os.environ["TELEGRAM_BOT_TOKEN"]
@@ -18,16 +20,22 @@ async def _send_message(telegram_id: int, text: str):
             await resp.read()
 
 
+def _parse_hhmm(value: str) -> tuple[int, int]:
+    hh, mm = value.split(":")[:2]
+    return int(hh), int(mm)
+
+
 def _in_window(now: datetime, hour: int, minute: int, span_minutes: int = 10) -> bool:
     target = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
     return target <= now < target + timedelta(minutes=span_minutes)
 
 
 async def _send_morning_digests(now: datetime):
-    if not _in_window(now, 8, 0):
-        return
     today_iso = now.date().isoformat()
     for user in await db.get_all_users():
+        hour, minute = _parse_hhmm(user.get("morning_digest_time") or "08:00")
+        if not _in_window(now, hour, minute):
+            continue
         if user.get("last_morning_digest_date") == today_iso:
             continue
         agenda = await db.get_today_agenda(user["id"])
@@ -48,34 +56,30 @@ async def _send_morning_digests(now: datetime):
         await db.mark_morning_digest_sent(user["id"], today_iso)
 
 
-# meal -> (reminder hour, reminder minute, "logged since" hour)
-MEAL_WINDOWS = {
-    "breakfast": (9, 30, 0),
-    "lunch": (13, 30, 11),
-    "dinner": (19, 30, 17),
-}
-MEAL_LABELS = {
-    "breakfast": "позавтракал",
-    "lunch": "пообедал",
-    "dinner": "поужинал",
+# meal -> (user time field, "logged since" hour, reminder field, label)
+MEAL_CONFIG = {
+    "breakfast": ("breakfast_reminder_time", 0, "позавтракал"),
+    "lunch": ("lunch_reminder_time", 11, "пообедал"),
+    "dinner": ("dinner_reminder_time", 17, "поужинал"),
 }
 
 
 async def _send_meal_reminders(now: datetime):
     today_iso = now.date().isoformat()
-    for meal, (hour, minute, since_hour) in MEAL_WINDOWS.items():
-        if not _in_window(now, hour, minute):
-            continue
-        since = now.replace(hour=since_hour, minute=0, second=0, microsecond=0).isoformat()
+    for meal, (time_field, since_hour, label) in MEAL_CONFIG.items():
         for user in await db.get_all_users():
+            hour, minute = _parse_hhmm(user.get(time_field) or "09:30")
+            if not _in_window(now, hour, minute):
+                continue
             field = f"last_{meal}_reminder_date"
             if user.get(field) == today_iso:
                 continue
+            since = now.replace(hour=since_hour, minute=0, second=0, microsecond=0).isoformat()
             if await db.has_food_entry_since(user["id"], since):
                 continue
             await _send_message(
                 user["telegram_id"],
-                f"Уже {MEAL_LABELS[meal]}? Скинь фото тарелки или напиши, что съел — посчитаю калории.",
+                f"Уже {label}? Скинь фото тарелки или напиши, что съел — посчитаю калории.",
             )
             await db.mark_meal_reminder_sent(user["id"], meal, today_iso)
 
@@ -97,8 +101,34 @@ async def _send_meeting_reminders(now: datetime):
             await db.mark_meeting_reminded(m["id"], field)
 
 
+async def _send_habit_reminders(now: datetime):
+    today_iso = now.date().isoformat()
+    today_code = WEEKDAY_CODES[now.weekday()]
+    for habit in await db.get_all_habits():
+        if habit.get("last_reminded_date") == today_iso:
+            continue
+        days = habit.get("days_of_week") or []
+        if today_code not in days:
+            continue
+        start_hour, start_minute = _parse_hhmm(habit["start_time"])
+        start_dt = now.replace(hour=start_hour, minute=start_minute, second=0, microsecond=0)
+        lead = habit.get("reminder_lead_minutes") or 60
+        remind_at = start_dt - timedelta(minutes=lead)
+        if not (remind_at <= now < remind_at + timedelta(minutes=10)):
+            continue
+        telegram_id = (habit.get("users") or {}).get("telegram_id")
+        if not telegram_id:
+            continue
+        await _send_message(
+            telegram_id,
+            f"🔔 «{habit['title']}» в {habit['start_time'][:5]} (через {lead} мин)",
+        )
+        await db.mark_habit_reminded(habit["id"], today_iso)
+
+
 async def run_tick():
     now = datetime.now(MOSCOW_TZ)
     await _send_morning_digests(now)
     await _send_meal_reminders(now)
     await _send_meeting_reminders(now)
+    await _send_habit_reminders(now)

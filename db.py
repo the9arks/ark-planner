@@ -138,6 +138,94 @@ async def add_ritual_log(user_id: str, title: str) -> dict:
     return await _run(_sync)
 
 
+def _upsert_habit_sync(
+    user_id: str,
+    title: str,
+    days_of_week: list[str],
+    start_time: str,
+    reminder_lead_minutes: int,
+) -> dict:
+    db = get_client()
+    row = {
+        "user_id": user_id,
+        "title": title,
+        "days_of_week": days_of_week,
+        "start_time": start_time,
+        "reminder_lead_minutes": reminder_lead_minutes,
+    }
+    existing = db.table("rituals").select("*").eq("user_id", user_id).eq("title", title).execute()
+    if existing.data:
+        return (
+            db.table("rituals")
+            .update(row)
+            .eq("id", existing.data[0]["id"])
+            .execute()
+            .data[0]
+        )
+    return db.table("rituals").insert(row).execute().data[0]
+
+
+async def upsert_habit(
+    user_id: str,
+    title: str,
+    days_of_week: list[str],
+    start_time: str,
+    reminder_lead_minutes: int,
+) -> dict:
+    return await _run(
+        _upsert_habit_sync, user_id, title, days_of_week, start_time, reminder_lead_minutes
+    )
+
+
+def _list_habits_sync(user_id: str) -> list[dict]:
+    return (
+        get_client()
+        .table("rituals")
+        .select("*")
+        .eq("user_id", user_id)
+        .not_.is_("start_time", "null")
+        .execute()
+        .data
+    )
+
+
+async def list_habits(user_id: str) -> list[dict]:
+    return await _run(_list_habits_sync, user_id)
+
+
+def _get_all_habits_sync() -> list[dict]:
+    return (
+        get_client()
+        .table("rituals")
+        .select("*, users(telegram_id)")
+        .not_.is_("start_time", "null")
+        .execute()
+        .data
+    )
+
+
+async def get_all_habits() -> list[dict]:
+    return await _run(_get_all_habits_sync)
+
+
+def _mark_habit_reminded_sync(ritual_id: str, today_iso: str):
+    get_client().table("rituals").update({"last_reminded_date": today_iso}).eq(
+        "id", ritual_id
+    ).execute()
+
+
+async def mark_habit_reminded(ritual_id: str, today_iso: str):
+    await _run(_mark_habit_reminded_sync, ritual_id, today_iso)
+
+
+def _set_user_time_sync(user_id: str, field: str, time_str: str):
+    get_client().table("users").update({field: time_str}).eq("id", user_id).execute()
+
+
+async def set_user_time(user_id: str, field: str, time_str: str):
+    await _run(_set_user_time_sync, user_id, field, time_str)
+
+
 def _get_digest_sync(user_id: str) -> dict:
     db = get_client()
     today = date.today().isoformat()
