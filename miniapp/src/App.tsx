@@ -18,7 +18,7 @@ const TABS: { id: TabId; num: string; label: string }[] = [
   { id: "money", num: "04", label: "Деньги" },
   { id: "meetings", num: "05", label: "Встречи" },
   { id: "food", num: "06", label: "Еда" },
-  { id: "rituals", num: "07", label: "Ритуалы" },
+  { id: "rituals", num: "07", label: "Привычки" },
   { id: "settings", num: "08", label: "Настройки" },
 ];
 
@@ -376,8 +376,8 @@ export default function App() {
         {tab === "rituals" && (
           <ListView<RitualLog>
             section="rituals"
-            emptyLabel="Ритуалов пока нет"
-            emptyHint="Например: «сон 6.5 часов» каждый день"
+            emptyLabel="Привычек пока нет"
+            emptyHint="«Тренировка бокс пн ср пт в 18:00, напомни за час» — или просто «спал 6.5 часов»"
             render={(r) => ({ title: formatWhen(r.created_at) || "Отметка" })}
           />
         )}

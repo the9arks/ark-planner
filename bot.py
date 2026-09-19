@@ -9,7 +9,14 @@ import re
 
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command, CommandStart
-from aiogram.types import FSInputFile, Message
+from aiogram.types import (
+    CallbackQuery,
+    FSInputFile,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
+    WebAppInfo,
+)
 from dotenv import load_dotenv
 
 import ai
@@ -27,29 +34,89 @@ WEEKDAY_RU = {
     "fri": "Пт", "sat": "Сб", "sun": "Вс",
 }
 
+MINIAPP_URL = os.environ.get("MINIAPP_URL", "https://ark-planner-miniapp.onrender.com")
+SUPPORT_URL = "https://t.me/ark_planner_support"
+PRIVACY_URL = "https://telegra.ph/Politika-konfidencialnosti-ARK-PLANNER-09-19"
+TERMS_URL = "https://telegra.ph/Polzovatelskoe-soglashenie-ARK-PLANNER-09-19-2"
+
 WELCOME = """\
 🅰️ <b>ARK PLANNER</b> — твоя жизнь в одном сообщении
 
-Просто пиши или надиктуй: «завтра в 15:00 встреча с Андреем», «потратил 500 на такси», \
-«съел борщ» — сам разложу по разделам: задачи, встречи, деньги, еда, заметки, ритуалы.
+Надиктуй или напиши: «завтра в 3 встреча с Андреем, на обед борщ, не забыть оплатить интернет» \
+→ встреча со временем, еда с калориями и задача сами появятся в нужных разделах.
 
-📸 Фото чека → трата
-🍽 Фото тарелки → калории и БЖУ
-🔔 Утренний дайджест, напоминания о встречах, еде и привычках
+Что умею:
+• Голос или текст → задачи, встречи, деньги, еда, заметки, привычки
+• Фото еды → точный подсчёт калорий и БЖУ
+• Фото чека → трата занесена автоматически
+• Утренний дайджест и напоминания — время под себя
+• Привычки по дням недели с напоминанием заранее
 
-<b>Free</b> — {free} AI-действия в день
-<b>Pro</b> — 199₽/мес, {pro} в день
+<b>Free</b> — {free} AI-действий/день · <b>Pro</b> — 199₽/мес, {pro}/день · \
 <b>Ultra</b> — 599₽/мес, безлимит
-
-Время напоминаний и тариф — в разделе «Настройки» в приложении (кнопка ниже).
-Привычки по дням: «тренировка бокс пн ср пт в 18:00, напомни за час».
-Команда /summary — сводка за сегодня.
 """.format(free=db.TIER_DAILY_LIMITS["free"], pro=db.TIER_DAILY_LIMITS["pro"])
 
 QUOTA_EXCEEDED = (
     "На сегодня бесплатные AI-действия закончились "
     f"({db.FREE_DAILY_AI_LIMIT} в день). Возвращайся завтра или оформи Pro для безлимита."
 )
+
+PROFILE_INFO_TEXT = """\
+🔒 ARK хранит то, что ты присылаешь: сообщения, фото, и записи, которые из них получаются \
+(задачи, встречи, траты, еда, привычки).
+
+Зачем: чтобы распознавать текст/фото и присылать тебе сводки и напоминания.
+
+Третьим лицам не передаём — кроме технических партнёров (Claude — распознавание, Supabase — \
+хранение, Platega — платежи).
+
+Полный текст — /privacy. Выгрузить или стереть всё — в любой момент через /support."""
+
+TARIFFS_TEXT = """\
+💳 <b>Тарифы ARK PLANNER</b>
+
+<b>Free</b> — {free} AI-действий в день, 0₽
+<b>Pro</b> — {pro} AI-действий в день, 199₽/мес (1990₽/год, 4990₽ навсегда)
+<b>Ultra</b> — безлимит, 599₽/мес (5990₽/год, 9990₽ навсегда)
+
+Сменить тариф — раздел «Настройки» в приложении.""".format(
+    free=db.TIER_DAILY_LIMITS["free"], pro=db.TIER_DAILY_LIMITS["pro"]
+)
+
+ACTION_BUTTON_TEXT = """\
+⚡️ <b>Кнопка действия (iPhone 15 Pro и новее)</b>
+
+Пока настраивается вручную через приложение «Команды»:
+1. Команды → «+» → добавь действие «Диктовка текста»
+2. Добавь действие «Открыть URL»: https://t.me/ARKPlannerBot?text=%TEXT%
+3. Настройки → Кнопка действия → выбери свою команду
+
+Полностью автоматическая настройка в одно нажатие — в разработке."""
+
+DOUBLE_TAP_TEXT = """\
+👆 <b>Двойной тап по задней крышке</b>
+
+Настройки → Специальные возможности → Касание → Нажатие задней панели → Двойное нажатие → \
+выбери ту же команду, что и для кнопки действия (см. /start → «Кнопка действия»).
+
+Полностью автоматическая настройка — в разработке."""
+
+
+def _main_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Как это работает", callback_data="info_profile")],
+            [InlineKeyboardButton(text="📱 Открыть приложение", web_app=WebAppInfo(url=MINIAPP_URL))],
+            [
+                InlineKeyboardButton(text="⚡️ Кнопка действия", callback_data="info_action_button"),
+                InlineKeyboardButton(text="👆 Двойной тап", callback_data="info_double_tap"),
+            ],
+            [
+                InlineKeyboardButton(text="💳 Тарифы", callback_data="info_tariffs"),
+                InlineKeyboardButton(text="🛟 Поддержка", url=SUPPORT_URL),
+            ],
+        ]
+    )
 
 
 async def _get_user(message: Message) -> dict:
@@ -63,12 +130,56 @@ async def _get_user(message: Message) -> dict:
 @dp.message(CommandStart())
 async def on_start(message: Message):
     await _get_user(message)
+    keyboard = _main_keyboard()
     if os.path.exists(INTRO_VIDEO_PATH):
         await message.answer_animation(
-            FSInputFile(INTRO_VIDEO_PATH), caption=WELCOME, parse_mode="HTML"
+            FSInputFile(INTRO_VIDEO_PATH),
+            caption=WELCOME,
+            parse_mode="HTML",
+            reply_markup=keyboard,
         )
     else:
-        await message.answer(WELCOME, parse_mode="HTML")
+        await message.answer(WELCOME, parse_mode="HTML", reply_markup=keyboard)
+
+
+@dp.callback_query(F.data == "info_profile")
+async def on_info_profile(callback: CallbackQuery):
+    await callback.message.answer(PROFILE_INFO_TEXT)
+    await callback.answer()
+
+
+@dp.callback_query(F.data == "info_tariffs")
+async def on_info_tariffs(callback: CallbackQuery):
+    await callback.message.answer(TARIFFS_TEXT, parse_mode="HTML")
+    await callback.answer()
+
+
+@dp.callback_query(F.data == "info_action_button")
+async def on_info_action_button(callback: CallbackQuery):
+    await callback.message.answer(ACTION_BUTTON_TEXT, parse_mode="HTML")
+    await callback.answer()
+
+
+@dp.callback_query(F.data == "info_double_tap")
+async def on_info_double_tap(callback: CallbackQuery):
+    await callback.message.answer(DOUBLE_TAP_TEXT, parse_mode="HTML")
+    await callback.answer()
+
+
+@dp.message(Command("privacy"))
+async def on_privacy(message: Message):
+    await message.answer(f"{PROFILE_INFO_TEXT}\n\nПолный текст: {PRIVACY_URL}")
+
+
+@dp.message(Command("support"))
+async def on_support(message: Message):
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[[InlineKeyboardButton(text="Написать в поддержку", url=SUPPORT_URL)]]
+    )
+    await message.answer(
+        "Если что-то не работает, есть вопрос по подписке или хочешь удалить данные — пиши:",
+        reply_markup=keyboard,
+    )
 
 
 @dp.message(F.text == "/summary")
@@ -326,6 +437,8 @@ async def _setup_bot_commands(bot: Bot):
         [
             BotCommand(command="start", description="Что умеет ARK"),
             BotCommand(command="summary", description="Сводка за сегодня"),
+            BotCommand(command="privacy", description="Приватность и данные"),
+            BotCommand(command="support", description="Написать в поддержку"),
             BotCommand(command="digest_time", description="Время утреннего дайджеста, напр. 09:30"),
             BotCommand(command="breakfast_time", description="Время напоминания про завтрак"),
             BotCommand(command="lunch_time", description="Время напоминания про обед"),
