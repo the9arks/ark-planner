@@ -240,7 +240,7 @@ def _localize(naive_iso: str | None) -> str | None:
     return naive_iso + USER_TZ_OFFSET
 
 
-async def _store_entry(user_id: str, data: dict):
+async def _store_entry(user_id: str, data: dict) -> dict:
     entry_type = data.get("entry_type")
     if entry_type == "task":
         await db.add_task(
@@ -275,18 +275,41 @@ async def _store_entry(user_id: str, data: dict):
         )
     elif entry_type == "ritual":
         title = data.get("title") or data.get("description")
-        if data.get("days_of_week") and data.get("start_time"):
-            await db.upsert_habit(
+        action = data.get("habit_action")
+
+        if action == "relapse":
+            habit = await db.find_habit(user_id, title)
+            if habit:
+                today_iso = datetime.now().date().isoformat()
+                await db.reset_habit_streak(habit["id"], today_iso)
+                data["streak_days"] = 0
+        elif action == "define" or (data.get("days_of_week") and data.get("start_time")):
+            habit = await db.upsert_habit(
                 user_id,
                 title,
-                data["days_of_week"],
-                data["start_time"],
-                data.get("reminder_lead_minutes") or 60,
+                data.get("days_of_week"),
+                data.get("start_time"),
+                data.get("reminder_lead_minutes"),
+                data.get("habit_type") or "build",
             )
+            data["streak_days"] = _streak_days(habit.get("streak_start_date"))
+        elif action == "checkin":
+            habit = await db.find_habit(user_id, title)
+            await db.add_ritual_log(user_id, habit["title"] if habit else title)
+            if habit:
+                data["streak_days"] = _streak_days(habit.get("streak_start_date"))
         else:
             await db.add_ritual_log(user_id, title)
     else:
         await db.add_note(user_id, data.get("description") or "")
+    return data
+
+
+def _streak_days(streak_start_date: str | None) -> int | None:
+    if not streak_start_date:
+        return None
+    start = datetime.fromisoformat(streak_start_date).date()
+    return (datetime.now().date() - start).days
 
 
 def _format_when(iso_str: str | None) -> str:
@@ -323,13 +346,24 @@ def _format_reply(data: dict) -> str:
         reply = f"🍽 Записал: {data.get('description')} (~{data.get('calories')} ккал)"
     elif entry_type == "ritual":
         title = data.get("title") or data.get("description")
-        if data.get("days_of_week") and data.get("start_time"):
+        action = data.get("habit_action")
+        streak = data.get("streak_days")
+
+        if action == "relapse":
+            reply = f"Бывает 💪 «{title}»: начинаем стрик заново — сегодня день 0."
+        elif action == "define" and data.get("days_of_week") and data.get("start_time"):
             days = ", ".join(WEEKDAY_RU.get(d, d) for d in data["days_of_week"])
             lead = data.get("reminder_lead_minutes") or 60
             reply = (
                 f"🔁 Привычка настроена: «{title}»\n"
                 f"{days}, в {data['start_time'][:5]}, напомню за {lead} мин"
             )
+        elif action == "define":
+            kind = "Бросаем" if data.get("habit_type") == "quit" else "Начинаем"
+            reply = f"🎯 {kind}: «{title}». Пиши сюда о прогрессе — буду считать дни."
+        elif action == "checkin":
+            streak_str = f" · день {streak}" if streak is not None else ""
+            reply = f"✅ «{title}»{streak_str} — так держать."
         else:
             reply = f"🔁 Ритуал: {title}"
     else:

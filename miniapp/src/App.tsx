@@ -208,7 +208,93 @@ interface Note { id: string; created_at: string; content: string }
 interface Meeting { id: string; created_at: string; title: string; with_who: string | null; starts_at: string | null }
 interface MoneyEntry { id: string; created_at: string; amount: number; category: string | null; comment: string | null }
 interface FoodEntry { id: string; created_at: string; description: string | null; calories: number | null }
-interface RitualLog { id: string; created_at: string }
+interface Habit {
+  id: string;
+  created_at: string;
+  title: string;
+  habit_type: "build" | "quit";
+  days_of_week: string[] | null;
+  start_time: string | null;
+  streak_start_date: string | null;
+}
+
+function streakDays(streakStartDate: string | null): number {
+  if (!streakStartDate) return 0;
+  const start = new Date(streakStartDate + "T00:00:00");
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return Math.max(0, Math.round((today.getTime() - start.getTime()) / 86400000));
+}
+
+const WEEKDAY_RU_SHORT: Record<string, string> = {
+  mon: "Пн", tue: "Вт", wed: "Ср", thu: "Чт", fri: "Пт", sat: "Сб", sun: "Вс",
+};
+
+function HabitsView() {
+  const [habits, setHabits] = useState<Habit[] | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    getSection<Habit>("rituals")
+      .then((res) => {
+        if (!cancelled) setHabits(res.items);
+      })
+      .catch(() => {
+        if (!cancelled) setHabits([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (habits === null) {
+    return <div className="text-white/30 text-sm text-center py-20">Загрузка…</div>;
+  }
+  if (habits.length === 0) {
+    return (
+      <EmptyView
+        label="Привычек пока нет"
+        hint="«Тренировка бокс пн ср пт в 18:00, напомни за час» — или «хочу бросить курить»"
+      />
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-2">
+      {habits.map((h) => {
+        const isQuit = h.habit_type === "quit";
+        const days = streakDays(h.streak_start_date);
+        const schedule =
+          h.days_of_week && h.start_time
+            ? h.days_of_week.map((d) => WEEKDAY_RU_SHORT[d] ?? d).join(", ") +
+              ` · ${h.start_time.slice(0, 5)}`
+            : null;
+        return (
+          <div
+            key={h.id}
+            className="rounded-xl border border-white/10 bg-white/[0.03] p-4 flex items-center justify-between gap-3"
+          >
+            <div className="flex flex-col gap-1">
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] uppercase tracking-wider text-white/40">
+                  {isQuit ? "🚭 Отказ" : "🎯 Привычка"}
+                </span>
+              </div>
+              <div className="text-sm">{h.title}</div>
+              {schedule && <div className="text-white/40 text-xs">{schedule}</div>}
+            </div>
+            <div className="text-right">
+              <div className="text-2xl font-semibold">{days}</div>
+              <div className="text-white/30 text-[10px]">
+                {isQuit ? "дней без срыва" : "дней подряд"}
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 const TIER_LABELS: Record<Tier, string> = { free: "Free", pro: "Pro", ultra: "Ultra" };
 
@@ -373,14 +459,7 @@ export default function App() {
             })}
           />
         )}
-        {tab === "rituals" && (
-          <ListView<RitualLog>
-            section="rituals"
-            emptyLabel="Привычек пока нет"
-            emptyHint="«Тренировка бокс пн ср пт в 18:00, напомни за час» — или просто «спал 6.5 часов»"
-            render={(r) => ({ title: formatWhen(r.created_at) || "Отметка" })}
-          />
-        )}
+        {tab === "rituals" && <HabitsView />}
         {tab === "settings" && (
           <SettingsView
             digest={digest}

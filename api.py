@@ -118,7 +118,7 @@ _LIST_FNS = {
     "meetings": db.list_meetings,
     "money": db.list_money,
     "food": db.list_food,
-    "rituals": db.list_rituals,
+    "rituals": db.list_habits,
 }
 
 

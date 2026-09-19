@@ -147,9 +147,10 @@ async def add_ritual_log(user_id: str, title: str) -> dict:
 def _upsert_habit_sync(
     user_id: str,
     title: str,
-    days_of_week: list[str],
-    start_time: str,
-    reminder_lead_minutes: int,
+    days_of_week: list[str] | None,
+    start_time: str | None,
+    reminder_lead_minutes: int | None,
+    habit_type: str,
 ) -> dict:
     db = get_client()
     row = {
@@ -158,6 +159,8 @@ def _upsert_habit_sync(
         "days_of_week": days_of_week,
         "start_time": start_time,
         "reminder_lead_minutes": reminder_lead_minutes,
+        "habit_type": habit_type,
+        "is_habit": True,
     }
     existing = db.table("rituals").select("*").eq("user_id", user_id).eq("title", title).execute()
     if existing.data:
@@ -168,19 +171,61 @@ def _upsert_habit_sync(
             .execute()
             .data[0]
         )
+    row["streak_start_date"] = date.today().isoformat()
     return db.table("rituals").insert(row).execute().data[0]
 
 
 async def upsert_habit(
     user_id: str,
     title: str,
-    days_of_week: list[str],
-    start_time: str,
-    reminder_lead_minutes: int,
+    days_of_week: list[str] | None,
+    start_time: str | None,
+    reminder_lead_minutes: int | None,
+    habit_type: str = "build",
 ) -> dict:
     return await _run(
-        _upsert_habit_sync, user_id, title, days_of_week, start_time, reminder_lead_minutes
+        _upsert_habit_sync,
+        user_id,
+        title,
+        days_of_week,
+        start_time,
+        reminder_lead_minutes,
+        habit_type,
     )
+
+
+def _find_habit_sync(user_id: str, title_hint: str) -> dict | None:
+    habits = (
+        get_client()
+        .table("rituals")
+        .select("*")
+        .eq("user_id", user_id)
+        .eq("is_habit", True)
+        .execute()
+        .data
+    )
+    hint = (title_hint or "").strip().lower()
+    if not hint:
+        return None
+    for h in habits:
+        t = (h.get("title") or "").strip().lower()
+        if t and (t in hint or hint in t):
+            return h
+    return None
+
+
+async def find_habit(user_id: str, title_hint: str) -> dict | None:
+    return await _run(_find_habit_sync, user_id, title_hint)
+
+
+def _reset_habit_streak_sync(habit_id: str, today_iso: str):
+    get_client().table("rituals").update({"streak_start_date": today_iso}).eq(
+        "id", habit_id
+    ).execute()
+
+
+async def reset_habit_streak(habit_id: str, today_iso: str):
+    await _run(_reset_habit_streak_sync, habit_id, today_iso)
 
 
 def _list_habits_sync(user_id: str) -> list[dict]:
@@ -189,7 +234,7 @@ def _list_habits_sync(user_id: str) -> list[dict]:
         .table("rituals")
         .select("*")
         .eq("user_id", user_id)
-        .not_.is_("start_time", "null")
+        .eq("is_habit", True)
         .execute()
         .data
     )
@@ -204,6 +249,7 @@ def _get_all_habits_sync() -> list[dict]:
         get_client()
         .table("rituals")
         .select("*, users(telegram_id)")
+        .eq("is_habit", True)
         .not_.is_("start_time", "null")
         .execute()
         .data
