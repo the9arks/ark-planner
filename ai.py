@@ -63,6 +63,13 @@ datetime ("2026-09-20T15:00:00").
 """
 
 
+def _extract_text(response) -> str:
+    for block in response.content:
+        if block.type == "text":
+            return block.text
+    raise ValueError("No text block in Claude response")
+
+
 def _parse_json_response(text: str) -> dict:
     text = text.strip()
     if text.startswith("```"):
@@ -79,7 +86,7 @@ def classify_text(user_text: str) -> dict:
         system=_system_prompt(),
         messages=[{"role": "user", "content": user_text}],
     )
-    return _parse_json_response(response.content[0].text)
+    return _parse_json_response(_extract_text(response))
 
 
 def classify_photo(image_bytes: bytes, media_type: str, caption: str | None = None) -> dict:
@@ -107,4 +114,4 @@ def classify_photo(image_bytes: bytes, media_type: str, caption: str | None = No
         system=_system_prompt(),
         messages=[{"role": "user", "content": content}],
     )
-    return _parse_json_response(response.content[0].text)
+    return _parse_json_response(_extract_text(response))
