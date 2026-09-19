@@ -56,9 +56,18 @@ WELCOME = """\
 <b>Ultra</b> — 599₽/мес, безлимит
 """.format(free=db.TIER_DAILY_LIMITS["free"], pro=db.TIER_DAILY_LIMITS["pro"])
 
-QUOTA_EXCEEDED = (
-    "На сегодня бесплатные AI-действия закончились "
-    f"({db.FREE_DAILY_AI_LIMIT} в день). Возвращайся завтра или оформи Pro для безлимита."
+TARIFFS_IMAGE_PATH = os.path.join(os.path.dirname(__file__), "assets", "tariffs.jpg")
+
+QUOTA_EXCEEDED_CAPTION = """\
+😮 На сегодня бесплатные запросы закончились ({limit} из {limit})
+
+Похоже, ARK реально тебе полезен — это хороший знак. Чтобы не ждать до завтра:
+
+<b>Pro</b> — 20 запросов в день, 199₽/мес
+<b>Ultra</b> — без ограничений вообще, 599₽/мес
+
+Сменить тариф — «Настройки» в приложении, кнопка ниже.""".format(
+    limit=db.FREE_DAILY_AI_LIMIT
 )
 
 PROFILE_INFO_TEXT = """\
@@ -148,9 +157,23 @@ async def on_info_profile(callback: CallbackQuery):
     await callback.answer()
 
 
+async def _send_tariffs(message: Message, caption: str):
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="📱 Открыть настройки", web_app=WebAppInfo(url=MINIAPP_URL))]
+        ]
+    )
+    if os.path.exists(TARIFFS_IMAGE_PATH):
+        await message.answer_photo(
+            FSInputFile(TARIFFS_IMAGE_PATH), caption=caption, parse_mode="HTML", reply_markup=keyboard
+        )
+    else:
+        await message.answer(caption, parse_mode="HTML", reply_markup=keyboard)
+
+
 @dp.callback_query(F.data == "info_tariffs")
 async def on_info_tariffs(callback: CallbackQuery):
-    await callback.message.answer(TARIFFS_TEXT, parse_mode="HTML")
+    await _send_tariffs(callback.message, TARIFFS_TEXT)
     await callback.answer()
 
 
@@ -379,7 +402,7 @@ def _format_reply(data: dict) -> str:
 async def on_photo(message: Message):
     user = await _get_user(message)
     if not await db.check_and_increment_quota(user):
-        await message.answer(QUOTA_EXCEEDED)
+        await _send_tariffs(message, QUOTA_EXCEEDED_CAPTION)
         return
 
     photo = message.photo[-1]
@@ -403,7 +426,7 @@ async def on_photo(message: Message):
 async def on_text(message: Message):
     user = await _get_user(message)
     if not await db.check_and_increment_quota(user):
-        await message.answer(QUOTA_EXCEEDED)
+        await _send_tariffs(message, QUOTA_EXCEEDED_CAPTION)
         return
 
     try:
