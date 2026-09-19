@@ -4,7 +4,13 @@ const DEV_TG_ID = import.meta.env.VITE_DEV_TG_ID ?? "1027565844";
 
 declare global {
   interface Window {
-    Telegram?: { WebApp?: { initData: string } };
+    Telegram?: {
+      WebApp?: {
+        initData: string;
+        ready: () => void;
+        expand: () => void;
+      };
+    };
   }
 }
 
