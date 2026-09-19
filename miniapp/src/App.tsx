@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { getDigest, getSection, type Digest } from "./api";
+import { getDigest, getSection, setTimeSetting, type Digest, type Tier } from "./api";
 
 type TabId =
   | "digest"
@@ -210,6 +210,97 @@ interface MoneyEntry { id: string; created_at: string; amount: number; category:
 interface FoodEntry { id: string; created_at: string; description: string | null; calories: number | null }
 interface RitualLog { id: string; created_at: string }
 
+const TIER_LABELS: Record<Tier, string> = { free: "Free", pro: "Pro", ultra: "Ultra" };
+
+function TimeRow({
+  label,
+  field,
+  value,
+  onSaved,
+}: {
+  label: string;
+  field: string;
+  value: string;
+  onSaved: (field: string, value: string) => void;
+}) {
+  const [saving, setSaving] = useState(false);
+
+  return (
+    <div className="flex items-center justify-between rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3">
+      <span className="text-sm">{label}</span>
+      <input
+        type="time"
+        defaultValue={value?.slice(0, 5)}
+        disabled={saving}
+        onChange={async (e) => {
+          const next = e.target.value;
+          if (!next) return;
+          setSaving(true);
+          try {
+            await setTimeSetting(field, next);
+            onSaved(field, next);
+          } finally {
+            setSaving(false);
+          }
+        }}
+        className="bg-white/[0.06] border border-white/10 rounded-lg px-2 py-1 text-sm text-white [color-scheme:dark]"
+      />
+    </div>
+  );
+}
+
+function SettingsView({
+  digest,
+  onTimeSaved,
+}: {
+  digest: Digest | null;
+  onTimeSaved: (field: string, value: string) => void;
+}) {
+  if (!digest) {
+    return <div className="text-white/30 text-sm text-center py-20">Загрузка…</div>;
+  }
+  const { user } = digest;
+  const limitLabel = user.daily_ai_limit === null ? "безлимит" : `${user.daily_ai_limit} AI-действий/день`;
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="rounded-2xl bg-gradient-to-br from-white/[0.06] to-white/[0.01] border border-white/10 p-5">
+        <div className="text-white/40 text-sm">Тариф</div>
+        <div className="text-2xl font-semibold mt-1">{TIER_LABELS[user.tier]}</div>
+        <div className="text-white/50 text-sm mt-2">{limitLabel}</div>
+      </div>
+
+      <div className="text-[11px] uppercase tracking-wider text-white/40 mt-2">
+        Время напоминаний
+      </div>
+      <TimeRow
+        label="Утренний дайджест"
+        field="morning_digest_time"
+        value={user.morning_digest_time}
+        onSaved={onTimeSaved}
+      />
+      <TimeRow
+        label="Завтрак"
+        field="breakfast_reminder_time"
+        value={user.breakfast_reminder_time}
+        onSaved={onTimeSaved}
+      />
+      <TimeRow
+        label="Обед"
+        field="lunch_reminder_time"
+        value={user.lunch_reminder_time}
+        onSaved={onTimeSaved}
+      />
+      <TimeRow
+        label="Ужин"
+        field="dinner_reminder_time"
+        value={user.dinner_reminder_time}
+        onSaved={onTimeSaved}
+      />
+    </div>
+  );
+}
+
 export default function App() {
   const [tab, setTab] = useState<TabId>("digest");
   const [digest, setDigest] = useState<Digest | null>(null);
@@ -227,7 +318,7 @@ export default function App() {
           <span className="font-semibold tracking-wide">ARK PLANNER</span>
         </div>
         <span className="text-[11px] text-white/40 border border-white/15 rounded-full px-2 py-1">
-          {digest?.user.is_pro ? "Pro" : "Free"}
+          {digest ? TIER_LABELS[digest.user.tier] : "…"}
         </span>
       </header>
 
@@ -291,7 +382,14 @@ export default function App() {
           />
         )}
         {tab === "settings" && (
-          <EmptyView label="Настройки" hint="Профиль, цели по калориям, тариф Pro" />
+          <SettingsView
+            digest={digest}
+            onTimeSaved={(field, value) =>
+              setDigest((prev) =>
+                prev ? { ...prev, user: { ...prev.user, [field]: value } } : prev
+              )
+            }
+          />
         )}
       </main>
 

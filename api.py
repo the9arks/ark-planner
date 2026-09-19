@@ -68,7 +68,48 @@ async def get_digest(request: web.Request):
     if not user:
         return web.json_response({"error": "unauthorized"}, status=401)
     digest = await db.get_digest(user["id"])
-    return web.json_response({"user": {"is_pro": user["is_pro"]}, "digest": digest})
+    tier = user.get("tier") or "free"
+    return web.json_response(
+        {
+            "user": {
+                "tier": tier,
+                "daily_ai_limit": db.TIER_DAILY_LIMITS.get(tier),
+                "morning_digest_time": user.get("morning_digest_time"),
+                "breakfast_reminder_time": user.get("breakfast_reminder_time"),
+                "lunch_reminder_time": user.get("lunch_reminder_time"),
+                "dinner_reminder_time": user.get("dinner_reminder_time"),
+            },
+            "digest": digest,
+        }
+    )
+
+
+@routes.post("/api/settings/time")
+async def set_time_setting(request: web.Request):
+    user = await _authenticate(request)
+    if not user:
+        return web.json_response({"error": "unauthorized"}, status=401)
+
+    body = await request.json()
+    field = body.get("field")
+    time_str = body.get("value")
+
+    allowed_fields = {
+        "morning_digest_time",
+        "breakfast_reminder_time",
+        "lunch_reminder_time",
+        "dinner_reminder_time",
+    }
+    if field not in allowed_fields:
+        return web.json_response({"error": "invalid_field"}, status=400)
+
+    import re
+
+    if not re.fullmatch(r"[0-2]?\d:[0-5]\d", (time_str or "").strip()):
+        return web.json_response({"error": "invalid_time"}, status=400)
+
+    await db.set_user_time(user["id"], field, time_str.strip())
+    return web.json_response({"ok": True})
 
 
 _LIST_FNS = {

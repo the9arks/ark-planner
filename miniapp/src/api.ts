@@ -14,24 +14,49 @@ declare global {
   }
 }
 
-export async function apiGet<T>(path: string): Promise<T> {
+function _authHeaders(url: URL): Record<string, string> {
   const initData = window.Telegram?.WebApp?.initData;
-  const url = new URL(`${API_URL}${path}`);
   const headers: Record<string, string> = {};
-
   if (initData) {
     headers.Authorization = `tma ${initData}`;
   } else {
     url.searchParams.set("tg_id", DEV_TG_ID);
   }
+  return headers;
+}
 
+export async function apiGet<T>(path: string): Promise<T> {
+  const url = new URL(`${API_URL}${path}`);
+  const headers = _authHeaders(url);
   const res = await fetch(url.toString(), { headers });
   if (!res.ok) throw new Error(`API ${path} failed: ${res.status}`);
   return res.json();
 }
 
+export async function apiPost<T>(path: string, body: unknown): Promise<T> {
+  const url = new URL(`${API_URL}${path}`);
+  const headers = _authHeaders(url);
+  headers["Content-Type"] = "application/json";
+  const res = await fetch(url.toString(), {
+    method: "POST",
+    headers,
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`API ${path} failed: ${res.status}`);
+  return res.json();
+}
+
+export type Tier = "free" | "pro" | "ultra";
+
 export interface Digest {
-  user: { is_pro: boolean };
+  user: {
+    tier: Tier;
+    daily_ai_limit: number | null;
+    morning_digest_time: string;
+    breakfast_reminder_time: string;
+    lunch_reminder_time: string;
+    dinner_reminder_time: string;
+  };
   digest: {
     tasks_today: number;
     notes_today: number;
@@ -47,4 +72,8 @@ export function getDigest() {
 
 export function getSection<T = Record<string, unknown>>(section: string) {
   return apiGet<{ items: T[] }>(`/api/${section}`);
+}
+
+export function setTimeSetting(field: string, value: string) {
+  return apiPost<{ ok: boolean }>("/api/settings/time", { field, value });
 }

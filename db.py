@@ -8,7 +8,8 @@ from supabase import Client, create_client
 
 _client: Client | None = None
 
-FREE_DAILY_AI_LIMIT = 3
+TIER_DAILY_LIMITS = {"free": 3, "pro": 20, "ultra": None}
+FREE_DAILY_AI_LIMIT = TIER_DAILY_LIMITS["free"]
 
 
 def get_client() -> Client:
@@ -39,7 +40,8 @@ async def get_or_create_user(telegram_id: int, username: str | None, first_name:
 
 def _check_and_increment_quota_sync(user: dict) -> bool:
     """Returns True if the action is allowed (and records it), False if quota exceeded."""
-    if user.get("is_pro"):
+    limit = TIER_DAILY_LIMITS.get(user.get("tier") or "free", FREE_DAILY_AI_LIMIT)
+    if limit is None:
         return True
 
     db = get_client()
@@ -52,7 +54,7 @@ def _check_and_increment_quota_sync(user: dict) -> bool:
         .execute()
     )
     count = row.data[0]["count"] if row.data else 0
-    if count >= FREE_DAILY_AI_LIMIT:
+    if count >= limit:
         return False
 
     if row.data:
