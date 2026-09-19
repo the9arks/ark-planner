@@ -1,0 +1,5 @@
+aiogram==3.13.1
+anthropic>=0.34.0
+python-dotenv>=1.0.1
+supabase>=2.9.0
+aiohttp-cors>=0.7.0

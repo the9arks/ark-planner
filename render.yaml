@@ -1,0 +1,27 @@
+services:
+  - type: web
+    name: ark-planner-backend
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python bot.py
+    envVars:
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_KEY
+        sync: false
+      - key: WEBHOOK_SECRET
+        sync: false
+
+  - type: web
+    name: ark-planner-miniapp
+    runtime: static
+    buildCommand: cd miniapp && npm install && npm run build
+    staticPublishPath: miniapp/dist
+    envVars:
+      - key: VITE_API_URL
+        sync: false

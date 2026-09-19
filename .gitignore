@@ -1,0 +1,14 @@
+.env
+.env.local
+venv/
+__pycache__/
+*.pyc
+life_tracker.db
+node_modules/
+miniapp/node_modules/
+miniapp/dist/
+miniapp/.env
+.claude/
+.mcp.json
+package.json
+package-lock.json
