@@ -80,7 +80,7 @@ PROFILE_INFO_TEXT = """\
 Третьим лицам не передаём — кроме технических партнёров (Claude — распознавание, Supabase — \
 хранение, Platega — платежи).
 
-Полный текст — /privacy. Выгрузить или стереть всё — в любой момент через /support."""
+Полный текст — /privacy, условия использования — /terms. Выгрузить или стереть всё — в любой момент через /support."""
 
 TARIFFS_TEXT = """\
 💳 <b>Тарифы ARK PLANNER</b>
@@ -89,7 +89,7 @@ TARIFFS_TEXT = """\
 <b>Pro</b> — {pro} AI-действий в день, 199₽/мес (1990₽/год, 4990₽ навсегда)
 <b>Ultra</b> — безлимит, 599₽/мес (5990₽/год, 9990₽ навсегда)
 
-Сменить тариф — раздел «Настройки» в приложении.""".format(
+Выбери тариф кнопкой ниже.""".format(
     free=db.TIER_DAILY_LIMITS["free"], pro=db.TIER_DAILY_LIMITS["pro"]
 )
 
@@ -344,6 +344,11 @@ async def on_privacy(message: Message):
     await message.answer(f"{PROFILE_INFO_TEXT}\n\nПолный текст: {PRIVACY_URL}")
 
 
+@dp.message(Command("terms"))
+async def on_terms(message: Message):
+    await message.answer(f"📄 Пользовательское соглашение ARK PLANNER:\n{TERMS_URL}")
+
+
 @dp.message(Command("support"))
 async def on_support(message: Message):
     keyboard = InlineKeyboardMarkup(
@@ -519,6 +524,7 @@ async def _setup_bot_commands(bot: Bot):
             BotCommand(command="start", description="Что умеет ARK"),
             BotCommand(command="summary", description="Сводка за сегодня"),
             BotCommand(command="privacy", description="Приватность и данные"),
+            BotCommand(command="terms", description="Пользовательское соглашение"),
             BotCommand(command="support", description="Написать в поддержку"),
             BotCommand(command="digest_time", description="Время утреннего дайджеста, напр. 09:30"),
             BotCommand(command="breakfast_time", description="Время напоминания про завтрак"),
