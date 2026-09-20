@@ -41,7 +41,7 @@ def _localize(naive_iso: str | None, tz_offset: int) -> str | None:
     return naive_iso + _tz_suffix(tz_offset)
 
 
-def _streak_days(streak_start_date: str | None, today) -> int | None:
+def streak_days(streak_start_date: str | None, today) -> int | None:
     if not streak_start_date:
         return None
     start = datetime.fromisoformat(streak_start_date).date()
@@ -101,12 +101,12 @@ async def store_entry(user_id: str, data: dict, tz_offset: int = 3) -> dict:
                 data.get("reminder_lead_minutes"),
                 data.get("habit_type") or "build",
             )
-            data["streak_days"] = _streak_days(habit.get("streak_start_date"), user_today)
+            data["streak_days"] = streak_days(habit.get("streak_start_date"), user_today)
         elif action == "checkin":
             habit = await db.find_habit(user_id, title)
             await db.add_ritual_log(user_id, habit["title"] if habit else title)
             if habit:
-                data["streak_days"] = _streak_days(habit.get("streak_start_date"), user_today)
+                data["streak_days"] = streak_days(habit.get("streak_start_date"), user_today)
         else:
             await db.add_ritual_log(user_id, title)
     else:

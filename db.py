@@ -526,9 +526,9 @@ def _get_digest_sync(user_id: str) -> dict:
     db = get_client()
     today = date.today().isoformat()
 
-    def count(table: str, extra=None):
+    def count(table: str, date_field: str = "created_at"):
         q = db.table(table).select("id", count="exact").eq("user_id", user_id).gte(
-            "created_at", today
+            date_field, today
         )
         return q.execute().count or 0
 
@@ -538,11 +538,53 @@ def _get_digest_sync(user_id: str) -> dict:
         "meetings_today": count("meetings"),
         "money_today": count("money_entries"),
         "food_today": count("food_entries"),
+        "rituals_today": count("ritual_logs", "done_at"),
     }
 
 
 async def get_digest(user_id: str) -> dict:
     return await _run(_get_digest_sync, user_id)
+
+
+def _get_money_summary_sync(user_id: str) -> dict:
+    db = get_client()
+    today = date.today()
+    today_iso = today.isoformat()
+    month_start_iso = today.replace(day=1).isoformat()
+
+    def sum_since(since_iso: str) -> float:
+        rows = (
+            db.table("money_entries")
+            .select("amount")
+            .eq("user_id", user_id)
+            .gte("created_at", since_iso)
+            .execute()
+            .data
+        )
+        return sum(r["amount"] or 0 for r in rows)
+
+    return {"today_total": sum_since(today_iso), "month_total": sum_since(month_start_iso)}
+
+
+async def get_money_summary(user_id: str) -> dict:
+    return await _run(_get_money_summary_sync, user_id)
+
+
+def _set_money_goal_sync(user_id: str, amount: float | None) -> None:
+    get_client().table("users").update({"money_goal_amount": amount}).eq("id", user_id).execute()
+
+
+async def set_money_goal(user_id: str, amount: float | None) -> None:
+    await _run(_set_money_goal_sync, user_id, amount)
+
+
+def _get_habit_sync(habit_id: str) -> dict | None:
+    rows = get_client().table("rituals").select("*").eq("id", habit_id).execute().data
+    return rows[0] if rows else None
+
+
+async def get_habit(habit_id: str) -> dict | None:
+    return await _run(_get_habit_sync, habit_id)
 
 
 def _list_sync(table: str, user_id: str, limit: int) -> list[dict]:

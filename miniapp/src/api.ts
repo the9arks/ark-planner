@@ -10,6 +10,7 @@ declare global {
         ready: () => void;
         expand: () => void;
         openTelegramLink: (url: string) => void;
+        openLink: (url: string) => void;
       };
     };
   }
@@ -58,6 +59,7 @@ export interface Digest {
     lunch_reminder_time: string;
     dinner_reminder_time: string;
     tz_offset: number;
+    money_goal_amount: number | null;
   };
   digest: {
     tasks_today: number;
@@ -65,11 +67,62 @@ export interface Digest {
     meetings_today: number;
     money_today: number;
     food_today: number;
+    rituals_today: number;
   };
 }
 
 export function getDigest() {
   return apiGet<Digest>("/api/digest");
+}
+
+export interface MoneySummary {
+  today_total: number;
+  month_total: number;
+  goal_amount: number | null;
+}
+
+export function getMoneySummary() {
+  return apiGet<MoneySummary>("/api/money/summary");
+}
+
+export function setMoneyGoal(amount: number | null) {
+  return apiPost<{ ok: boolean }>("/api/money/goal", { amount });
+}
+
+export interface HabitActionResult {
+  ok: boolean;
+  streak_days: number | null;
+  reply: string;
+}
+
+export function checkinHabit(habitId: string) {
+  return apiPost<HabitActionResult>(`/api/habits/${habitId}/checkin`, {});
+}
+
+export function relapseHabit(habitId: string) {
+  return apiPost<HabitActionResult>(`/api/habits/${habitId}/relapse`, {});
+}
+
+export interface OrderResult {
+  url?: string;
+  amount?: number;
+  error?: string;
+}
+
+export async function createOrder(tier: string, period: string): Promise<OrderResult> {
+  const url = new URL(`${API_URL}/api/orders`);
+  const headers = _authHeaders(url);
+  headers["Content-Type"] = "application/json";
+  const res = await fetch(url.toString(), {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ tier, period }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    return { error: data.error ?? "unknown_error" };
+  }
+  return data;
 }
 
 export function getSection<T = Record<string, unknown>>(section: string) {

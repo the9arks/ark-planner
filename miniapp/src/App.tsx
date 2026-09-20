@@ -1,11 +1,17 @@
 import { useEffect, useState } from "react";
 import {
+  checkinHabit,
+  createOrder,
   getDigest,
+  getMoneySummary,
   getSection,
+  relapseHabit,
+  setMoneyGoal,
   setTimeSetting,
   setTimezone,
   submitEntry,
   type Digest,
+  type MoneySummary,
   type Tier,
 } from "./api";
 
@@ -83,7 +89,23 @@ function CountCard({ title, count, hint }: { title: string; count: number; hint:
   );
 }
 
+const MOTIVATIONAL_PHRASES = [
+  "Проживём сегодня чуть лучше, чем вчера.",
+  "Маленькие шаги каждый день — большой путь за год.",
+  "Ты уже здесь и уже начал — остальное приложится.",
+  "Один день — один шаг вперёд.",
+  "Прогресс важнее идеала.",
+  "Сфокусируйся на главном, остальное подождёт.",
+  "Заботиться о себе — тоже дело, и важное.",
+  "Сегодня — хороший день, чтобы не откладывать.",
+];
+
+function pickMotivation(): string {
+  return MOTIVATIONAL_PHRASES[Math.floor(Math.random() * MOTIVATIONAL_PHRASES.length)];
+}
+
 function DigestView({ digest }: { digest: Digest | null }) {
+  const [greeting] = useState(pickMotivation);
   const today = new Date().toLocaleDateString("ru-RU", {
     weekday: "long",
     day: "numeric",
@@ -92,13 +114,13 @@ function DigestView({ digest }: { digest: Digest | null }) {
   const d = digest?.digest;
   const hasAny =
     !!d &&
-    (d.tasks_today || d.notes_today || d.meetings_today || d.money_today || d.food_today);
+    (d.tasks_today || d.notes_today || d.meetings_today || d.money_today || d.food_today || d.rituals_today);
 
   return (
     <div className="flex flex-col gap-3">
       <div className="rounded-2xl bg-gradient-to-br from-white/[0.06] to-white/[0.01] border border-white/10 p-5">
         <div className="text-white/40 text-sm capitalize">{today}</div>
-        <div className="text-2xl font-semibold mt-1">Доброе утро</div>
+        <div className="text-xl font-semibold mt-1">{greeting}</div>
         <div className="text-white/50 text-sm mt-2">
           {hasAny
             ? "Вот что уже записано сегодня."
@@ -111,9 +133,9 @@ function DigestView({ digest }: { digest: Digest | null }) {
         <CountCard title="Заметки" count={d?.notes_today ?? 0} hint="Мысль или запись" />
         <CountCard title="Встречи" count={d?.meetings_today ?? 0} hint="Запланировать" />
         <CountCard title="Еда" count={d?.food_today ?? 0} hint="Сфоткай еду" />
+        <CountCard title="Привычки" count={d?.rituals_today ?? 0} hint="Отметь сегодня" />
+        <CountCard title="Деньги" count={d?.money_today ?? 0} hint="Настрой бюджет" />
       </div>
-
-      <CountCard title="Деньги" count={d?.money_today ?? 0} hint="Настрой бюджет" />
     </div>
   );
 }
@@ -278,8 +300,78 @@ const WEEKDAY_RU_SHORT: Record<string, string> = {
   mon: "Пн", tue: "Вт", wed: "Ср", thu: "Чт", fri: "Пт", sat: "Сб", sun: "Вс",
 };
 
-function HabitsView() {
+function HabitCard({
+  habit,
+  onAction,
+}: {
+  habit: Habit;
+  onAction: (habitId: string, kind: "checkin" | "relapse") => Promise<void>;
+}) {
+  const isQuit = habit.habit_type === "quit";
+  const days = streakDays(habit.streak_start_date);
+  const schedule =
+    habit.days_of_week && habit.start_time
+      ? habit.days_of_week.map((d) => WEEKDAY_RU_SHORT[d] ?? d).join(", ") +
+        ` · ${habit.start_time.slice(0, 5)}`
+      : null;
+  const [busy, setBusy] = useState(false);
+
+  async function handle(kind: "checkin" | "relapse") {
+    setBusy(true);
+    try {
+      await onAction(habit.id, kind);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4 flex flex-col gap-3">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex flex-col gap-1">
+          <div className="text-sm">{habit.title}</div>
+          {schedule && <div className="text-white/40 text-xs">{schedule}</div>}
+        </div>
+        <div className="text-right shrink-0">
+          <div className="text-2xl font-semibold">{days}</div>
+          <div className="text-white/30 text-[10px]">{isQuit ? "дней без срыва" : "дней подряд"}</div>
+        </div>
+      </div>
+      <div className="flex gap-2">
+        {isQuit ? (
+          <>
+            <button
+              disabled={busy}
+              onClick={() => handle("checkin")}
+              className="flex-1 rounded-lg bg-white/10 text-xs py-2 disabled:opacity-50"
+            >
+              Держусь
+            </button>
+            <button
+              disabled={busy}
+              onClick={() => handle("relapse")}
+              className="flex-1 rounded-lg bg-white/5 text-white/60 text-xs py-2 disabled:opacity-50"
+            >
+              Сорвался
+            </button>
+          </>
+        ) : (
+          <button
+            disabled={busy}
+            onClick={() => handle("checkin")}
+            className="flex-1 rounded-lg bg-white/10 text-xs py-2 disabled:opacity-50"
+          >
+            Отметить сегодня
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function HabitsView({ refreshTick, onChanged }: { refreshTick: number; onChanged: () => void }) {
   const [habits, setHabits] = useState<Habit[] | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -293,7 +385,27 @@ function HabitsView() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [refreshTick]);
+
+  async function handleAction(habitId: string, kind: "checkin" | "relapse") {
+    try {
+      const result = kind === "checkin" ? await checkinHabit(habitId) : await relapseHabit(habitId);
+      setToast(result.reply);
+      setHabits((prev) =>
+        prev
+          ? prev.map((h) =>
+              h.id === habitId
+                ? { ...h, streak_start_date: kind === "relapse" ? new Date().toISOString().slice(0, 10) : h.streak_start_date }
+                : h
+            )
+          : prev
+      );
+      onChanged();
+    } catch {
+      setToast("Не получилось, попробуй ещё раз");
+    }
+    setTimeout(() => setToast(null), 4000);
+  }
 
   if (habits === null) {
     return <div className="text-white/30 text-sm text-center py-20">Загрузка…</div>;
@@ -307,36 +419,199 @@ function HabitsView() {
     );
   }
 
+  const building = habits.filter((h) => h.habit_type !== "quit");
+  const quitting = habits.filter((h) => h.habit_type === "quit");
+
+  return (
+    <div className="flex flex-col gap-4">
+      {toast && (
+        <div className="rounded-xl border border-white/10 bg-[#0f0f12]/95 backdrop-blur px-4 py-2 text-xs text-white/70">
+          {toast}
+        </div>
+      )}
+      {building.length > 0 && (
+        <div className="flex flex-col gap-2">
+          <div className="text-[11px] uppercase tracking-wider text-white/40">🎯 Привычки</div>
+          {building.map((h) => (
+            <HabitCard key={h.id} habit={h} onAction={handleAction} />
+          ))}
+        </div>
+      )}
+      {quitting.length > 0 && (
+        <div className="flex flex-col gap-2">
+          <div className="text-[11px] uppercase tracking-wider text-white/40">🚭 Отказы</div>
+          {quitting.map((h) => (
+            <HabitCard key={h.id} habit={h} onAction={handleAction} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MoneyView({ refreshTick }: { refreshTick: number }) {
+  const [summary, setSummary] = useState<MoneySummary | null>(null);
+  const [editingGoal, setEditingGoal] = useState(false);
+  const [goalInput, setGoalInput] = useState("");
+  const [savingGoal, setSavingGoal] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    getMoneySummary()
+      .then((s) => {
+        if (!cancelled) setSummary(s);
+      })
+      .catch(() => {
+        if (!cancelled) setSummary(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshTick]);
+
+  async function saveGoal() {
+    const trimmed = goalInput.trim();
+    const amount = trimmed ? Number(trimmed) : null;
+    if (trimmed && (!amount || amount <= 0)) return;
+    setSavingGoal(true);
+    try {
+      await setMoneyGoal(amount);
+      setSummary((prev) => (prev ? { ...prev, goal_amount: amount } : prev));
+      setEditingGoal(false);
+    } finally {
+      setSavingGoal(false);
+    }
+  }
+
+  const goalProgress =
+    summary?.goal_amount && summary.goal_amount > 0
+      ? Math.min(100, Math.round((summary.month_total / summary.goal_amount) * 100))
+      : null;
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="grid grid-cols-2 gap-3">
+        <Card title="Сегодня">
+          <div className="flex-1 flex items-end">
+            <span className="text-2xl font-semibold">{summary ? `${summary.today_total}₽` : "…"}</span>
+          </div>
+        </Card>
+        <Card title="Месяц">
+          <div className="flex-1 flex items-end">
+            <span className="text-2xl font-semibold">{summary ? `${summary.month_total}₽` : "…"}</span>
+          </div>
+        </Card>
+      </div>
+
+      <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+        <div className="flex items-center justify-between">
+          <span className="text-[11px] uppercase tracking-wider text-white/40">Цель на месяц</span>
+          {!editingGoal && (
+            <button
+              onClick={() => {
+                setGoalInput(summary?.goal_amount ? String(summary.goal_amount) : "");
+                setEditingGoal(true);
+              }}
+              className="text-xs text-white/50 underline"
+            >
+              {summary?.goal_amount ? "Изменить" : "Задать"}
+            </button>
+          )}
+        </div>
+        {editingGoal ? (
+          <div className="flex items-center gap-2 mt-2">
+            <input
+              type="number"
+              inputMode="numeric"
+              value={goalInput}
+              onChange={(e) => setGoalInput(e.target.value)}
+              placeholder="Например, 30000"
+              className="flex-1 bg-white/[0.06] border border-white/10 rounded-lg px-2 py-1.5 text-sm text-white"
+            />
+            <button
+              onClick={saveGoal}
+              disabled={savingGoal}
+              className="rounded-lg bg-white text-black text-xs px-3 py-1.5 disabled:opacity-50"
+            >
+              OK
+            </button>
+          </div>
+        ) : summary?.goal_amount ? (
+          <>
+            <div className="text-sm mt-2">
+              {summary.month_total}₽ из {summary.goal_amount}₽
+            </div>
+            <div className="h-2 rounded-full bg-white/10 mt-2 overflow-hidden">
+              <div
+                className={`h-full rounded-full ${goalProgress! >= 100 ? "bg-red-400" : "bg-white"}`}
+                style={{ width: `${goalProgress}%` }}
+              />
+            </div>
+          </>
+        ) : (
+          <div className="text-white/30 text-sm mt-2">Не задана — сколько хочешь тратить в месяц?</div>
+        )}
+      </div>
+
+      <ListView<MoneyEntry>
+        key={refreshTick}
+        section="money"
+        emptyLabel="Трат пока нет"
+        emptyHint="Пришли фото чека — занесу автоматически"
+        render={(m) => ({
+          title: `${m.amount}₽ ${m.category ?? ""}`,
+          subtitle: m.comment ?? undefined,
+        })}
+      />
+    </div>
+  );
+}
+
+function MeetingsView({ refreshTick }: { refreshTick: number }) {
+  const [items, setItems] = useState<Meeting[] | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    getSection<Meeting>("meetings")
+      .then((res) => {
+        if (!cancelled) setItems(res.items);
+      })
+      .catch(() => {
+        if (!cancelled) setItems([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshTick]);
+
+  if (items === null) {
+    return <div className="text-white/30 text-sm text-center py-20">Загрузка…</div>;
+  }
+  if (items.length === 0) {
+    return <EmptyView label="Встреч пока нет" hint="Напиши: «завтра в 15:00 встреча с Андреем»" />;
+  }
+
+  const now = new Date();
+
   return (
     <div className="flex flex-col gap-2">
-      {habits.map((h) => {
-        const isQuit = h.habit_type === "quit";
-        const days = streakDays(h.streak_start_date);
-        const schedule =
-          h.days_of_week && h.start_time
-            ? h.days_of_week.map((d) => WEEKDAY_RU_SHORT[d] ?? d).join(", ") +
-              ` · ${h.start_time.slice(0, 5)}`
-            : null;
+      {items.map((m) => {
+        const isPast = m.starts_at ? new Date(m.starts_at) < now : false;
         return (
           <div
-            key={h.id}
-            className="rounded-xl border border-white/10 bg-white/[0.03] p-4 flex items-center justify-between gap-3"
+            key={m.id}
+            className={`rounded-xl border border-white/10 bg-white/[0.03] p-3 ${isPast ? "opacity-40" : ""}`}
           >
-            <div className="flex flex-col gap-1">
-              <div className="flex items-center gap-2">
-                <span className="text-[10px] uppercase tracking-wider text-white/40">
-                  {isQuit ? "🚭 Отказ" : "🎯 Привычка"}
-                </span>
-              </div>
-              <div className="text-sm">{h.title}</div>
-              {schedule && <div className="text-white/40 text-xs">{schedule}</div>}
+            <div className="text-sm">
+              {m.with_who ? `Встреча с ${m.with_who}` : m.title}
+              {isPast && " ✓"}
             </div>
-            <div className="text-right">
-              <div className="text-2xl font-semibold">{days}</div>
-              <div className="text-white/30 text-[10px]">
-                {isQuit ? "дней без срыва" : "дней подряд"}
+            {m.starts_at && (
+              <div className="text-white/40 text-xs mt-1">
+                {formatWhen(m.starts_at)}
+                {isPast ? " · прошла" : ""}
               </div>
-            </div>
+            )}
           </div>
         );
       })}
@@ -421,6 +696,84 @@ function TimezoneRow({
   );
 }
 
+const TARIFF_OPTIONS: { tier: "pro" | "ultra"; period: "month" | "year" | "lifetime"; label: string }[] = [
+  { tier: "pro", period: "month", label: "Pro — 199₽/мес" },
+  { tier: "ultra", period: "month", label: "Ultra — 599₽/мес" },
+  { tier: "pro", period: "year", label: "Pro — 1990₽/год (-17%)" },
+  { tier: "ultra", period: "year", label: "Ultra — 5990₽/год (-17%)" },
+  { tier: "pro", period: "lifetime", label: "Pro — 4990₽ навсегда" },
+  { tier: "ultra", period: "lifetime", label: "Ultra — 9990₽ навсегда" },
+];
+
+function openExternal(url: string) {
+  const webApp = window.Telegram?.WebApp;
+  if (webApp?.openLink) {
+    webApp.openLink(url);
+  } else {
+    window.open(url, "_blank");
+  }
+}
+
+function TariffPurchase() {
+  const [busyKey, setBusyKey] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function buy(tier: string, period: string) {
+    const key = `${tier}_${period}`;
+    setBusyKey(key);
+    setError(null);
+    try {
+      const result = await createOrder(tier, period);
+      if (result.url) {
+        openExternal(result.url);
+      } else if (result.error === "not_configured") {
+        setError("Оплата подключается, скоро будет доступна 🙌 Загляни чуть позже.");
+      } else {
+        setError("Не получилось создать оплату, попробуй ещё раз.");
+      }
+    } catch {
+      setError("Не получилось создать оплату, попробуй ещё раз.");
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-2 mt-4">
+      <div className="grid grid-cols-3 gap-2">
+        <div className="rounded-xl border border-white/10 bg-white/[0.02] p-2 text-center">
+          <div className="text-[10px] text-white/40">FREE</div>
+          <div className="text-sm font-semibold mt-1">0₽</div>
+        </div>
+        <div className="rounded-xl border border-white/20 bg-white/[0.06] p-2 text-center">
+          <div className="text-[10px] text-white/60">PRO</div>
+          <div className="text-sm font-semibold mt-1">199₽</div>
+        </div>
+        <div className="rounded-xl border border-white/20 bg-white/[0.06] p-2 text-center">
+          <div className="text-[10px] text-white/60">ULTRA</div>
+          <div className="text-sm font-semibold mt-1">599₽</div>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        {TARIFF_OPTIONS.map((opt) => {
+          const key = `${opt.tier}_${opt.period}`;
+          return (
+            <button
+              key={key}
+              disabled={busyKey === key}
+              onClick={() => buy(opt.tier, opt.period)}
+              className="rounded-xl bg-white/[0.06] border border-white/10 text-xs py-2.5 px-2 disabled:opacity-50"
+            >
+              {busyKey === key ? "…" : opt.label}
+            </button>
+          );
+        })}
+      </div>
+      {error && <div className="text-white/50 text-xs">{error}</div>}
+    </div>
+  );
+}
+
 function SettingsView({
   digest,
   onTimeSaved,
@@ -442,12 +795,7 @@ function SettingsView({
         <div className="text-white/40 text-sm">Тариф</div>
         <div className="text-2xl font-semibold mt-1">{TIER_LABELS[user.tier]}</div>
         <div className="text-white/50 text-sm mt-2">{limitLabel}</div>
-        <button
-          onClick={() => window.Telegram?.WebApp?.openTelegramLink("https://t.me/ARKPlannerBot?start=buy")}
-          className="mt-4 w-full rounded-xl bg-white text-black text-sm font-medium py-2.5"
-        >
-          {user.tier === "free" ? "Купить подписку" : "Управлять подпиской"}
-        </button>
+        <TariffPurchase />
       </div>
 
       <TimezoneRow value={user.tz_offset} onSaved={onTzSaved} />
@@ -529,30 +877,8 @@ export default function App() {
             render={(n) => ({ title: n.content })}
           />
         )}
-        {tab === "money" && (
-          <ListView<MoneyEntry>
-            key={refreshTick}
-            section="money"
-            emptyLabel="Трат пока нет"
-            emptyHint="Пришли фото чека — занесу автоматически"
-            render={(m) => ({
-              title: `${m.amount}₽ ${m.category ?? ""}`,
-              subtitle: m.comment ?? undefined,
-            })}
-          />
-        )}
-        {tab === "meetings" && (
-          <ListView<Meeting>
-            key={refreshTick}
-            section="meetings"
-            emptyLabel="Встреч пока нет"
-            emptyHint="Напиши: «завтра в 15:00 встреча с Андреем»"
-            render={(m) => ({
-              title: m.with_who ? `Встреча с ${m.with_who}` : m.title,
-              subtitle: formatWhen(m.starts_at),
-            })}
-          />
-        )}
+        {tab === "money" && <MoneyView refreshTick={refreshTick} />}
+        {tab === "meetings" && <MeetingsView refreshTick={refreshTick} />}
         {tab === "food" && (
           <ListView<FoodEntry>
             key={refreshTick}
@@ -565,7 +891,7 @@ export default function App() {
             })}
           />
         )}
-        {tab === "rituals" && <HabitsView key={refreshTick} />}
+        {tab === "rituals" && <HabitsView refreshTick={refreshTick} onChanged={handleSubmitted} />}
         {tab === "settings" && (
           <SettingsView
             digest={digest}

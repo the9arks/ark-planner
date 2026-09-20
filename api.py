@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import logging
 import os
+from datetime import datetime, timedelta, timezone
 from urllib.parse import parse_qsl
 
 from aiohttp import web
@@ -83,10 +84,111 @@ async def get_digest(request: web.Request):
                 "lunch_reminder_time": user.get("lunch_reminder_time"),
                 "dinner_reminder_time": user.get("dinner_reminder_time"),
                 "tz_offset": user.get("tz_offset", 3),
+                "money_goal_amount": user.get("money_goal_amount"),
             },
             "digest": digest,
         }
     )
+
+
+@routes.get("/api/money/summary")
+async def get_money_summary(request: web.Request):
+    user = await _authenticate(request)
+    if not user:
+        return web.json_response({"error": "unauthorized"}, status=401)
+    summary = await db.get_money_summary(user["id"])
+    summary["goal_amount"] = user.get("money_goal_amount")
+    return web.json_response(summary)
+
+
+@routes.post("/api/money/goal")
+async def set_money_goal(request: web.Request):
+    user = await _authenticate(request)
+    if not user:
+        return web.json_response({"error": "unauthorized"}, status=401)
+
+    body = await request.json()
+    raw = body.get("amount")
+    if raw in (None, ""):
+        await db.set_money_goal(user["id"], None)
+        return web.json_response({"ok": True})
+
+    try:
+        amount = float(raw)
+    except (TypeError, ValueError):
+        return web.json_response({"error": "invalid_amount"}, status=400)
+    if amount <= 0:
+        return web.json_response({"error": "invalid_amount"}, status=400)
+
+    await db.set_money_goal(user["id"], amount)
+    return web.json_response({"ok": True})
+
+
+@routes.post("/api/habits/{habit_id}/checkin")
+async def habit_checkin(request: web.Request):
+    user = await _authenticate(request)
+    if not user:
+        return web.json_response({"error": "unauthorized"}, status=401)
+
+    habit = await db.get_habit(request.match_info["habit_id"])
+    if not habit or habit["user_id"] != user["id"]:
+        return web.json_response({"error": "not_found"}, status=404)
+
+    await db.add_ritual_log(user["id"], habit["title"])
+    tz_offset = user.get("tz_offset", 3)
+    today = datetime.now(timezone(timedelta(hours=tz_offset))).date()
+    streak = core.streak_days(habit.get("streak_start_date"), today)
+    streak_str = f" · день {streak}" if streak is not None else ""
+    return web.json_response(
+        {"ok": True, "streak_days": streak, "reply": f"✅ «{habit['title']}»{streak_str} — так держать."}
+    )
+
+
+@routes.post("/api/habits/{habit_id}/relapse")
+async def habit_relapse(request: web.Request):
+    user = await _authenticate(request)
+    if not user:
+        return web.json_response({"error": "unauthorized"}, status=401)
+
+    habit = await db.get_habit(request.match_info["habit_id"])
+    if not habit or habit["user_id"] != user["id"]:
+        return web.json_response({"error": "not_found"}, status=404)
+
+    tz_offset = user.get("tz_offset", 3)
+    today = datetime.now(timezone(timedelta(hours=tz_offset))).date()
+    await db.reset_habit_streak(habit["id"], today.isoformat())
+    return web.json_response(
+        {"ok": True, "streak_days": 0, "reply": f"Бывает 💪 «{habit['title']}»: начинаем стрик заново — сегодня день 0."}
+    )
+
+
+@routes.post("/api/orders")
+async def create_order_api(request: web.Request):
+    user = await _authenticate(request)
+    if not user:
+        return web.json_response({"error": "unauthorized"}, status=401)
+
+    body = await request.json()
+    tier = body.get("tier")
+    period = body.get("period")
+    if tier not in payments.PRICING or period not in payments.PERIOD_DAYS:
+        return web.json_response({"error": "invalid_tariff"}, status=400)
+
+    if not payments.is_configured():
+        return web.json_response({"error": "not_configured"}, status=503)
+
+    amount = payments.PRICING[tier][period]
+    order = await db.create_order(user["id"], tier, period, amount)
+    try:
+        result = await payments.create_payment(
+            order["id"], user["telegram_id"], user.get("username"), tier, period
+        )
+    except Exception:
+        logging.exception("create_order_api failed")
+        return web.json_response({"error": "payment_failed"}, status=500)
+
+    await db.set_order_transaction(order["id"], result["transactionId"])
+    return web.json_response({"url": result["url"], "amount": amount})
 
 
 @routes.post("/api/settings/time")
