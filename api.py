@@ -124,6 +124,86 @@ async def set_money_goal(request: web.Request):
     return web.json_response({"ok": True})
 
 
+@routes.get("/api/food/summary")
+async def get_food_summary(request: web.Request):
+    user = await _authenticate(request)
+    if not user:
+        return web.json_response({"error": "unauthorized"}, status=401)
+    calories_today = await db.get_calories_today(user["id"])
+    return web.json_response({"calories_today": calories_today, "goal": user.get("calorie_goal")})
+
+
+@routes.post("/api/food/goal")
+async def set_food_goal(request: web.Request):
+    user = await _authenticate(request)
+    if not user:
+        return web.json_response({"error": "unauthorized"}, status=401)
+
+    body = await request.json()
+    raw = body.get("amount")
+    if raw in (None, ""):
+        await db.set_calorie_goal(user["id"], None)
+        return web.json_response({"ok": True})
+
+    try:
+        amount = int(raw)
+    except (TypeError, ValueError):
+        return web.json_response({"error": "invalid_amount"}, status=400)
+    if amount <= 0:
+        return web.json_response({"error": "invalid_amount"}, status=400)
+
+    await db.set_calorie_goal(user["id"], amount)
+    return web.json_response({"ok": True})
+
+
+@routes.post("/api/tasks/manual")
+async def add_task_manual(request: web.Request):
+    user = await _authenticate(request)
+    if not user:
+        return web.json_response({"error": "unauthorized"}, status=401)
+
+    body = await request.json()
+    title = (body.get("title") or "").strip()
+    if not title:
+        return web.json_response({"error": "empty_title"}, status=400)
+
+    task = await db.add_task(user["id"], title)
+    return web.json_response({"ok": True, "task": task})
+
+
+@routes.delete("/api/meetings/{meeting_id}")
+async def cancel_meeting(request: web.Request):
+    user = await _authenticate(request)
+    if not user:
+        return web.json_response({"error": "unauthorized"}, status=401)
+
+    meeting = await db.get_meeting(request.match_info["meeting_id"])
+    if not meeting or meeting["user_id"] != user["id"]:
+        return web.json_response({"error": "not_found"}, status=404)
+
+    await db.delete_meeting(meeting["id"])
+    return web.json_response({"ok": True})
+
+
+@routes.post("/api/meetings/{meeting_id}/reschedule")
+async def reschedule_meeting_api(request: web.Request):
+    user = await _authenticate(request)
+    if not user:
+        return web.json_response({"error": "unauthorized"}, status=401)
+
+    meeting = await db.get_meeting(request.match_info["meeting_id"])
+    if not meeting or meeting["user_id"] != user["id"]:
+        return web.json_response({"error": "not_found"}, status=404)
+
+    body = await request.json()
+    starts_at = (body.get("starts_at") or "").strip()
+    if not starts_at:
+        return web.json_response({"error": "invalid_time"}, status=400)
+
+    updated = await db.reschedule_meeting(meeting["id"], starts_at)
+    return web.json_response({"ok": True, "meeting": updated})
+
+
 @routes.post("/api/habits/{habit_id}/checkin")
 async def habit_checkin(request: web.Request):
     user = await _authenticate(request)

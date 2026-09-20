@@ -306,6 +306,38 @@ async def add_meeting(user_id: str, title: str, with_who: str | None, starts_at:
     )
 
 
+def _get_meeting_sync(meeting_id: str) -> dict | None:
+    rows = get_client().table("meetings").select("*").eq("id", meeting_id).execute().data
+    return rows[0] if rows else None
+
+
+async def get_meeting(meeting_id: str) -> dict | None:
+    return await _run(_get_meeting_sync, meeting_id)
+
+
+def _delete_meeting_sync(meeting_id: str) -> None:
+    get_client().table("meetings").delete().eq("id", meeting_id).execute()
+
+
+async def delete_meeting(meeting_id: str) -> None:
+    await _run(_delete_meeting_sync, meeting_id)
+
+
+def _reschedule_meeting_sync(meeting_id: str, starts_at: str) -> dict:
+    return (
+        get_client()
+        .table("meetings")
+        .update({"starts_at": starts_at, "reminded_2h": False, "reminded_30m": False})
+        .eq("id", meeting_id)
+        .execute()
+        .data[0]
+    )
+
+
+async def reschedule_meeting(meeting_id: str, starts_at: str) -> dict:
+    return await _run(_reschedule_meeting_sync, meeting_id, starts_at)
+
+
 async def add_money(user_id: str, amount: float, category: str | None, comment: str | None, ai_comment: str | None) -> dict:
     return await _run(
         _insert_sync,
@@ -576,6 +608,32 @@ def _set_money_goal_sync(user_id: str, amount: float | None) -> None:
 
 async def set_money_goal(user_id: str, amount: float | None) -> None:
     await _run(_set_money_goal_sync, user_id, amount)
+
+
+def _set_calorie_goal_sync(user_id: str, amount: int | None) -> None:
+    get_client().table("users").update({"calorie_goal": amount}).eq("id", user_id).execute()
+
+
+async def set_calorie_goal(user_id: str, amount: int | None) -> None:
+    await _run(_set_calorie_goal_sync, user_id, amount)
+
+
+def _get_calories_today_sync(user_id: str) -> int:
+    today = date.today().isoformat()
+    rows = (
+        get_client()
+        .table("food_entries")
+        .select("calories")
+        .eq("user_id", user_id)
+        .gte("created_at", today)
+        .execute()
+        .data
+    )
+    return sum(r["calories"] or 0 for r in rows)
+
+
+async def get_calories_today(user_id: str) -> int:
+    return await _run(_get_calories_today_sync, user_id)
 
 
 def _get_habit_sync(habit_id: str) -> dict | None:

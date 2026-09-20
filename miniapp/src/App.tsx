@@ -1,16 +1,22 @@
 import { useEffect, useState } from "react";
 import {
+  addTaskManual,
+  cancelMeeting,
   checkinHabit,
   createOrder,
   getDigest,
+  getFoodSummary,
   getMoneySummary,
   getSection,
   relapseHabit,
+  rescheduleMeeting,
+  setFoodGoal,
   setMoneyGoal,
   setTimeSetting,
   setTimezone,
   submitEntry,
   type Digest,
+  type FoodSummary,
   type MoneySummary,
   type Tier,
 } from "./api";
@@ -224,6 +230,8 @@ function ComposerBar({ onSubmitted }: { onSubmitted: () => void }) {
       setToast("Лимит AI-действий на сегодня исчерпан — загляни в «Настройки» за тарифом");
     } else if (result.error === "service_unavailable") {
       setToast("⚠️ ARK временно недоступен (технические работы) — попробуй через несколько минут");
+    } else if (result.error === "network_error") {
+      setToast("Не достучались до сервера (возможно, он просыпался) — попробуй ещё раз");
     } else {
       setToast("Не получилось записать, попробуй ещё раз");
     }
@@ -454,6 +462,7 @@ function MoneyView({ refreshTick }: { refreshTick: number }) {
   const [editingGoal, setEditingGoal] = useState(false);
   const [goalInput, setGoalInput] = useState("");
   const [savingGoal, setSavingGoal] = useState(false);
+  const [goalError, setGoalError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -474,10 +483,13 @@ function MoneyView({ refreshTick }: { refreshTick: number }) {
     const amount = trimmed ? Number(trimmed) : null;
     if (trimmed && (!amount || amount <= 0)) return;
     setSavingGoal(true);
+    setGoalError(null);
     try {
       await setMoneyGoal(amount);
       setSummary((prev) => (prev ? { ...prev, goal_amount: amount } : prev));
       setEditingGoal(false);
+    } catch {
+      setGoalError("Не получилось сохранить, попробуй ещё раз");
     } finally {
       setSavingGoal(false);
     }
@@ -533,7 +545,7 @@ function MoneyView({ refreshTick }: { refreshTick: number }) {
               disabled={savingGoal}
               className="rounded-lg bg-white text-black text-xs px-3 py-1.5 disabled:opacity-50"
             >
-              OK
+              {savingGoal ? "…" : "OK"}
             </button>
           </div>
         ) : summary?.goal_amount ? (
@@ -551,6 +563,7 @@ function MoneyView({ refreshTick }: { refreshTick: number }) {
         ) : (
           <div className="text-white/30 text-sm mt-2">Не задана — сколько хочешь тратить в месяц?</div>
         )}
+        {goalError && <div className="text-red-400/80 text-xs mt-2">{goalError}</div>}
       </div>
 
       <ListView<MoneyEntry>
@@ -567,7 +580,213 @@ function MoneyView({ refreshTick }: { refreshTick: number }) {
   );
 }
 
-function MeetingsView({ refreshTick }: { refreshTick: number }) {
+function toDatetimeLocalValue(iso: string): string {
+  const dt = new Date(iso);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}T${pad(dt.getHours())}:${pad(dt.getMinutes())}`;
+}
+
+function TasksView({ refreshTick, onChanged }: { refreshTick: number; onChanged: () => void }) {
+  const [items, setItems] = useState<Task[] | null>(null);
+  const [adding, setAdding] = useState(false);
+  const [title, setTitle] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    getSection<Task>("tasks")
+      .then((res) => {
+        if (!cancelled) setItems(res.items);
+      })
+      .catch(() => {
+        if (!cancelled) setItems([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshTick]);
+
+  async function handleAdd() {
+    const trimmed = title.trim();
+    if (!trimmed || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await addTaskManual(trimmed);
+      setTitle("");
+      setAdding(false);
+      onChanged();
+    } catch {
+      setError("Не получилось добавить, попробуй ещё раз");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-3">
+      {adding ? (
+        <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3 flex flex-col gap-2">
+          <input
+            autoFocus
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") handleAdd();
+            }}
+            placeholder="Например, купить молоко"
+            className="bg-white/[0.06] border border-white/10 rounded-lg px-3 py-2 text-sm text-white"
+          />
+          <div className="flex gap-2">
+            <button
+              disabled={busy || !title.trim()}
+              onClick={handleAdd}
+              className="flex-1 rounded-lg bg-white text-black text-xs py-2 disabled:opacity-50"
+            >
+              {busy ? "…" : "Добавить"}
+            </button>
+            <button
+              onClick={() => {
+                setAdding(false);
+                setTitle("");
+              }}
+              className="flex-1 rounded-lg bg-white/5 text-white/60 text-xs py-2"
+            >
+              Отмена
+            </button>
+          </div>
+          {error && <div className="text-red-400/80 text-xs">{error}</div>}
+        </div>
+      ) : (
+        <button
+          onClick={() => setAdding(true)}
+          className="rounded-xl border border-white/10 bg-white/[0.03] text-sm py-3 text-white/60"
+        >
+          + Добавить задачу
+        </button>
+      )}
+
+      {items === null ? (
+        <div className="text-white/30 text-sm text-center py-20">Загрузка…</div>
+      ) : items.length === 0 ? (
+        <EmptyView label="Задач пока нет" hint="Напиши боту: «купить молоко завтра» или добавь кнопкой выше" />
+      ) : (
+        <div className="flex flex-col gap-2">
+          {items.map((t) => (
+            <div key={t.id} className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+              <div className="text-sm">{t.title}</div>
+              {t.due_at && <div className="text-white/40 text-xs mt-1">{formatWhen(t.due_at)}</div>}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MeetingCard({
+  meeting,
+  isPast,
+  onChanged,
+}: {
+  meeting: Meeting;
+  isPast: boolean;
+  onChanged: () => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [rescheduling, setRescheduling] = useState(false);
+  const [newTime, setNewTime] = useState(meeting.starts_at ? toDatetimeLocalValue(meeting.starts_at) : "");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleCancel() {
+    setBusy(true);
+    setError(null);
+    try {
+      await cancelMeeting(meeting.id);
+      onChanged();
+    } catch {
+      setError("Не получилось отменить, попробуй ещё раз");
+      setBusy(false);
+    }
+  }
+
+  async function handleReschedule() {
+    if (!newTime) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await rescheduleMeeting(meeting.id, new Date(newTime).toISOString());
+      onChanged();
+    } catch {
+      setError("Не получилось перенести, попробуй ещё раз");
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className={`rounded-xl border border-white/10 bg-white/[0.03] p-3 ${isPast ? "opacity-40" : ""}`}>
+      <button
+        className="w-full text-left"
+        onClick={() => !isPast && setExpanded((e) => !e)}
+        disabled={isPast}
+      >
+        <div className="text-sm">
+          {meeting.with_who ? `Встреча с ${meeting.with_who}` : meeting.title}
+          {isPast && " ✓"}
+        </div>
+        {meeting.starts_at && (
+          <div className="text-white/40 text-xs mt-1">
+            {formatWhen(meeting.starts_at)}
+            {isPast ? " · прошла" : ""}
+          </div>
+        )}
+      </button>
+      {!isPast && expanded && (
+        <div className="mt-3 flex flex-col gap-2">
+          {rescheduling ? (
+            <div className="flex items-center gap-2">
+              <input
+                type="datetime-local"
+                value={newTime}
+                onChange={(e) => setNewTime(e.target.value)}
+                className="flex-1 bg-white/[0.06] border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white [color-scheme:dark]"
+              />
+              <button
+                disabled={busy || !newTime}
+                onClick={handleReschedule}
+                className="rounded-lg bg-white text-black text-xs px-3 py-1.5 disabled:opacity-50"
+              >
+                {busy ? "…" : "OK"}
+              </button>
+            </div>
+          ) : (
+            <div className="flex gap-2">
+              <button
+                disabled={busy}
+                onClick={() => setRescheduling(true)}
+                className="flex-1 rounded-lg bg-white/10 text-xs py-2 disabled:opacity-50"
+              >
+                Перенести
+              </button>
+              <button
+                disabled={busy}
+                onClick={handleCancel}
+                className="flex-1 rounded-lg bg-white/5 text-white/60 text-xs py-2 disabled:opacity-50"
+              >
+                {busy ? "…" : "Отменить"}
+              </button>
+            </div>
+          )}
+          {error && <div className="text-red-400/80 text-xs">{error}</div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MeetingsView({ refreshTick, onChanged }: { refreshTick: number; onChanged: () => void }) {
   const [items, setItems] = useState<Meeting[] | null>(null);
 
   useEffect(() => {
@@ -595,26 +814,171 @@ function MeetingsView({ refreshTick }: { refreshTick: number }) {
 
   return (
     <div className="flex flex-col gap-2">
-      {items.map((m) => {
-        const isPast = m.starts_at ? new Date(m.starts_at) < now : false;
-        return (
-          <div
-            key={m.id}
-            className={`rounded-xl border border-white/10 bg-white/[0.03] p-3 ${isPast ? "opacity-40" : ""}`}
-          >
-            <div className="text-sm">
-              {m.with_who ? `Встреча с ${m.with_who}` : m.title}
-              {isPast && " ✓"}
-            </div>
-            {m.starts_at && (
-              <div className="text-white/40 text-xs mt-1">
-                {formatWhen(m.starts_at)}
-                {isPast ? " · прошла" : ""}
-              </div>
-            )}
+      {items.map((m) => (
+        <MeetingCard
+          key={m.id}
+          meeting={m}
+          isPast={m.starts_at ? new Date(m.starts_at) < now : false}
+          onChanged={onChanged}
+        />
+      ))}
+    </div>
+  );
+}
+
+const MEAL_BUCKETS: { key: string; label: string; from: number; to: number }[] = [
+  { key: "breakfast", label: "Завтрак", from: 0, to: 11 },
+  { key: "lunch", label: "Обед", from: 11, to: 17 },
+  { key: "dinner", label: "Ужин", from: 17, to: 24 },
+];
+
+function FoodView({ refreshTick }: { refreshTick: number }) {
+  const [items, setItems] = useState<FoodEntry[] | null>(null);
+  const [summary, setSummary] = useState<FoodSummary | null>(null);
+  const [editingGoal, setEditingGoal] = useState(false);
+  const [goalInput, setGoalInput] = useState("");
+  const [savingGoal, setSavingGoal] = useState(false);
+  const [goalError, setGoalError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    getSection<FoodEntry>("food")
+      .then((res) => {
+        if (!cancelled) setItems(res.items);
+      })
+      .catch(() => {
+        if (!cancelled) setItems([]);
+      });
+    getFoodSummary()
+      .then((s) => {
+        if (!cancelled) setSummary(s);
+      })
+      .catch(() => {
+        if (!cancelled) setSummary(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshTick]);
+
+  async function saveGoal() {
+    const trimmed = goalInput.trim();
+    const amount = trimmed ? Number(trimmed) : null;
+    if (trimmed && (!amount || amount <= 0)) return;
+    setSavingGoal(true);
+    setGoalError(null);
+    try {
+      await setFoodGoal(amount);
+      setSummary((prev) => (prev ? { ...prev, goal: amount } : prev));
+      setEditingGoal(false);
+    } catch {
+      setGoalError("Не получилось сохранить, попробуй ещё раз");
+    } finally {
+      setSavingGoal(false);
+    }
+  }
+
+  const goalProgress =
+    summary?.goal && summary.goal > 0 ? Math.min(100, Math.round((summary.calories_today / summary.goal) * 100)) : null;
+
+  const today = new Date().toDateString();
+  const buckets: Record<string, FoodEntry[]> = { breakfast: [], lunch: [], dinner: [], other: [] };
+  (items ?? []).forEach((f) => {
+    const dt = new Date(f.created_at);
+    if (dt.toDateString() !== today) {
+      buckets.other.push(f);
+      return;
+    }
+    const hour = dt.getHours();
+    const bucket = MEAL_BUCKETS.find((b) => hour >= b.from && hour < b.to);
+    buckets[bucket?.key ?? "other"].push(f);
+  });
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+        <div className="flex items-center justify-between">
+          <span className="text-[11px] uppercase tracking-wider text-white/40">Цель по калориям в день</span>
+          {!editingGoal && (
+            <button
+              onClick={() => {
+                setGoalInput(summary?.goal ? String(summary.goal) : "");
+                setEditingGoal(true);
+              }}
+              className="text-xs text-white/50 underline"
+            >
+              {summary?.goal ? "Изменить" : "Задать"}
+            </button>
+          )}
+        </div>
+        {editingGoal ? (
+          <div className="flex items-center gap-2 mt-2">
+            <input
+              type="number"
+              inputMode="numeric"
+              value={goalInput}
+              onChange={(e) => setGoalInput(e.target.value)}
+              placeholder="Например, 2000"
+              className="flex-1 bg-white/[0.06] border border-white/10 rounded-lg px-2 py-1.5 text-sm text-white"
+            />
+            <button
+              onClick={saveGoal}
+              disabled={savingGoal}
+              className="rounded-lg bg-white text-black text-xs px-3 py-1.5 disabled:opacity-50"
+            >
+              {savingGoal ? "…" : "OK"}
+            </button>
           </div>
-        );
-      })}
+        ) : summary?.goal ? (
+          <>
+            <div className="text-sm mt-2">
+              {summary.calories_today} ккал из {summary.goal} ккал
+            </div>
+            <div className="h-2 rounded-full bg-white/10 mt-2 overflow-hidden">
+              <div
+                className={`h-full rounded-full ${goalProgress! >= 100 ? "bg-red-400" : "bg-white"}`}
+                style={{ width: `${goalProgress}%` }}
+              />
+            </div>
+          </>
+        ) : (
+          <div className="text-white/30 text-sm mt-2">Не задана — сколько килокалорий в день твоя цель?</div>
+        )}
+        {goalError && <div className="text-red-400/80 text-xs mt-2">{goalError}</div>}
+      </div>
+
+      {items === null ? (
+        <div className="text-white/30 text-sm text-center py-20">Загрузка…</div>
+      ) : items.length === 0 ? (
+        <EmptyView label="Приёмов пищи пока нет" hint="Сфоткай тарелку — посчитаю калории и БЖУ" />
+      ) : (
+        <>
+          {MEAL_BUCKETS.map((b) =>
+            buckets[b.key].length > 0 ? (
+              <div key={b.key} className="flex flex-col gap-2">
+                <div className="text-[11px] uppercase tracking-wider text-white/40">{b.label}</div>
+                {buckets[b.key].map((f) => (
+                  <div key={f.id} className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+                    <div className="text-sm">{f.description ?? "Приём пищи"}</div>
+                    {f.calories && <div className="text-white/40 text-xs mt-1">~{f.calories} ккал</div>}
+                  </div>
+                ))}
+              </div>
+            ) : null
+          )}
+          {buckets.other.length > 0 && (
+            <div className="flex flex-col gap-2">
+              <div className="text-[11px] uppercase tracking-wider text-white/40">Раньше</div>
+              {buckets.other.map((f) => (
+                <div key={f.id} className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+                  <div className="text-sm">{f.description ?? "Приём пищи"}</div>
+                  {f.calories && <div className="text-white/40 text-xs mt-1">~{f.calories} ккал</div>}
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }
@@ -633,10 +997,14 @@ function TimeRow({
   onSaved: (field: string, value: string) => void;
 }) {
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(false);
 
   return (
     <div className="flex items-center justify-between rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3">
-      <span className="text-sm">{label}</span>
+      <span className="text-sm">
+        {label}
+        {error && <span className="text-red-400/80 text-xs ml-2">не сохранилось, попробуй ещё раз</span>}
+      </span>
       <input
         type="time"
         defaultValue={value?.slice(0, 5)}
@@ -645,9 +1013,12 @@ function TimeRow({
           const next = e.target.value;
           if (!next) return;
           setSaving(true);
+          setError(false);
           try {
             await setTimeSetting(field, next);
             onSaved(field, next);
+          } catch {
+            setError(true);
           } finally {
             setSaving(false);
           }
@@ -668,18 +1039,25 @@ function TimezoneRow({
   onSaved: (tz: number) => void;
 }) {
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(false);
   return (
     <div className="flex items-center justify-between rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3">
-      <span className="text-sm">Часовой пояс</span>
+      <span className="text-sm">
+        Часовой пояс
+        {error && <span className="text-red-400/80 text-xs ml-2">не сохранилось</span>}
+      </span>
       <select
         value={value}
         disabled={saving}
         onChange={async (e) => {
           const tz = Number(e.target.value);
           setSaving(true);
+          setError(false);
           try {
             await setTimezone(tz);
             onSaved(tz);
+          } catch {
+            setError(true);
           } finally {
             setSaving(false);
           }
@@ -841,6 +1219,19 @@ export default function App() {
     getDigest().then(setDigest).catch(() => setDigest(null));
   }, [refreshTick]);
 
+  // Telegram keeps the Mini App's WebView alive in the background, so reopening
+  // it can show whatever was on screen minutes or hours ago. Refetch whenever
+  // it becomes visible again instead of leaving stale data on screen.
+  useEffect(() => {
+    function handleVisibility() {
+      if (document.visibilityState === "visible") {
+        setRefreshTick((t) => t + 1);
+      }
+    }
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => document.removeEventListener("visibilitychange", handleVisibility);
+  }, []);
+
   function handleSubmitted() {
     setRefreshTick((t) => t + 1);
   }
@@ -859,38 +1250,19 @@ export default function App() {
 
       <main className="flex-1 overflow-y-auto px-4 py-4 pb-44">
         {tab === "digest" && <DigestView digest={digest} />}
-        {tab === "tasks" && (
-          <ListView<Task>
-            key={refreshTick}
-            section="tasks"
-            emptyLabel="Задач пока нет"
-            emptyHint="Напиши боту: «купить молоко завтра»"
-            render={(t) => ({ title: t.title, subtitle: formatWhen(t.due_at) })}
-          />
-        )}
+        {tab === "tasks" && <TasksView refreshTick={refreshTick} onChanged={handleSubmitted} />}
         {tab === "notes" && (
           <ListView<Note>
             key={refreshTick}
             section="notes"
             emptyLabel="Заметок пока нет"
-            emptyHint="Скинь мысль текстом или голосом"
+            emptyHint="Идея, мысль, что угодно — текстом или голосом"
             render={(n) => ({ title: n.content })}
           />
         )}
         {tab === "money" && <MoneyView refreshTick={refreshTick} />}
-        {tab === "meetings" && <MeetingsView refreshTick={refreshTick} />}
-        {tab === "food" && (
-          <ListView<FoodEntry>
-            key={refreshTick}
-            section="food"
-            emptyLabel="Приёмов пищи пока нет"
-            emptyHint="Сфоткай тарелку — посчитаю калории и БЖУ"
-            render={(f) => ({
-              title: f.description ?? "Приём пищи",
-              subtitle: f.calories ? `~${f.calories} ккал` : undefined,
-            })}
-          />
-        )}
+        {tab === "meetings" && <MeetingsView refreshTick={refreshTick} onChanged={handleSubmitted} />}
+        {tab === "food" && <FoodView refreshTick={refreshTick} />}
         {tab === "rituals" && <HabitsView refreshTick={refreshTick} onChanged={handleSubmitted} />}
         {tab === "settings" && (
           <SettingsView

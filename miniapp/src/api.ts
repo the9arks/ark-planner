@@ -48,6 +48,14 @@ export async function apiPost<T>(path: string, body: unknown): Promise<T> {
   return res.json();
 }
 
+export async function apiDelete<T>(path: string): Promise<T> {
+  const url = new URL(`${API_URL}${path}`);
+  const headers = _authHeaders(url);
+  const res = await fetch(url.toString(), { method: "DELETE", headers });
+  if (!res.ok) throw new Error(`API ${path} failed: ${res.status}`);
+  return res.json();
+}
+
 export type Tier = "free" | "pro" | "ultra";
 
 export interface Digest {
@@ -103,6 +111,33 @@ export function relapseHabit(habitId: string) {
   return apiPost<HabitActionResult>(`/api/habits/${habitId}/relapse`, {});
 }
 
+export interface FoodSummary {
+  calories_today: number;
+  goal: number | null;
+}
+
+export function getFoodSummary() {
+  return apiGet<FoodSummary>("/api/food/summary");
+}
+
+export function setFoodGoal(amount: number | null) {
+  return apiPost<{ ok: boolean }>("/api/food/goal", { amount });
+}
+
+export function addTaskManual(title: string) {
+  return apiPost<{ ok: boolean; task: unknown }>("/api/tasks/manual", { title });
+}
+
+export function cancelMeeting(meetingId: string) {
+  return apiDelete<{ ok: boolean }>(`/api/meetings/${meetingId}`);
+}
+
+export function rescheduleMeeting(meetingId: string, startsAt: string) {
+  return apiPost<{ ok: boolean; meeting: unknown }>(`/api/meetings/${meetingId}/reschedule`, {
+    starts_at: startsAt,
+  });
+}
+
 export interface OrderResult {
   url?: string;
   amount?: number;
@@ -148,14 +183,20 @@ export async function submitEntry(text: string): Promise<EntryResult> {
   const url = new URL(`${API_URL}/api/entries`);
   const headers = _authHeaders(url);
   headers["Content-Type"] = "application/json";
-  const res = await fetch(url.toString(), {
-    method: "POST",
-    headers,
-    body: JSON.stringify({ text }),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    return { ok: false, error: data.error ?? "unknown_error" };
+  try {
+    const res = await fetch(url.toString(), {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ text }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      return { ok: false, error: data.error ?? "unknown_error" };
+    }
+    return { ok: true, reply: data.reply, entry_type: data.entry_type };
+  } catch {
+    // Network failure, dropped connection, or the backend waking up from
+    // Render's free-tier cold start — never let this hang the composer forever.
+    return { ok: false, error: "network_error" };
   }
-  return { ok: true, reply: data.reply, entry_type: data.entry_type };
 }
