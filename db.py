@@ -9,8 +9,11 @@ from supabase import Client, create_client
 
 _client: Client | None = None
 
-TIER_DAILY_LIMITS = {"free": 3, "pro": 20, "ultra": None}
+TIER_DAILY_LIMITS = {"free": 3, "pro": 10, "ultra": None}
 FREE_DAILY_AI_LIMIT = TIER_DAILY_LIMITS["free"]
+
+REFEREE_BONUS_DAYS = 3
+REFERRER_BONUS_DAYS = 1
 
 
 def get_client() -> Client:
@@ -68,7 +71,7 @@ def _grant_referral_bonus_sync(referee_id: str, referrer_id: str) -> None:
     now = datetime.now(timezone.utc)
 
     db.table("users").update(
-        {"tier": "pro", "tier_expires_at": (now + timedelta(days=3)).isoformat()}
+        {"tier": "pro", "tier_expires_at": (now + timedelta(days=REFEREE_BONUS_DAYS)).isoformat()}
     ).eq("id", referee_id).execute()
 
     referrer = db.table("users").select("tier, tier_expires_at").eq("id", referrer_id).execute().data[0]
@@ -84,7 +87,7 @@ def _grant_referral_bonus_sync(referee_id: str, referrer_id: str) -> None:
     if tier not in ("pro", "ultra"):
         tier = "pro"
     db.table("users").update(
-        {"tier": tier, "tier_expires_at": (base + timedelta(days=5)).isoformat()}
+        {"tier": tier, "tier_expires_at": (base + timedelta(days=REFERRER_BONUS_DAYS)).isoformat()}
     ).eq("id", referrer_id).execute()
 
 

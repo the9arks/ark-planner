@@ -54,7 +54,7 @@ WELCOME = """\
 <b>Free</b> — {free} AI-действий/день · <b>Pro</b> — 199₽/мес, {pro}/день · \
 <b>Ultra</b> — 599₽/мес, безлимит
 
-🎁 Не хочешь платить — приглашай друзей: каждому +5 дней Pro бесплатно (кнопка ниже).
+🎁 Не хочешь платить — приглашай друзей: другу 3 дня Pro, тебе 1 день Pro за каждого (кнопка ниже).
 """.format(free=db.TIER_DAILY_LIMITS["free"], pro=db.TIER_DAILY_LIMITS["pro"])
 
 TARIFFS_IMAGE_PATH = os.path.join(os.path.dirname(__file__), "assets", "tariffs.jpg")
@@ -64,11 +64,11 @@ QUOTA_EXCEEDED_CAPTION = """\
 
 Похоже, ARK реально тебе полезен — это хороший знак. Чтобы не ждать до завтра:
 
-<b>Pro</b> — 20 запросов в день, 199₽/мес
+<b>Pro</b> — {pro} запросов в день, 199₽/мес
 <b>Ultra</b> — без ограничений вообще, 599₽/мес
 
-Или бесплатно: пригласи друга — получи 5 дней Pro (кнопка «Пригласить» на /start).""".format(
-    limit=db.FREE_DAILY_AI_LIMIT
+Или бесплатно: пригласи друга — получи 1 день Pro (кнопка «Пригласить» на /start).""".format(
+    limit=db.FREE_DAILY_AI_LIMIT, pro=db.TIER_DAILY_LIMITS["pro"]
 )
 
 PROFILE_INFO_TEXT = """\
@@ -168,7 +168,7 @@ async def on_start(message: Message):
     if user.get("_is_new") and referrer_tg_id:
         await message.answer(
             "🎁 Ты пришёл по приглашению — начислил тебе 3 дня Pro бесплатно!\n"
-            "Другу тоже начислено 5 дней Pro в благодарность 🙌"
+            "Другу тоже начислен 1 день Pro в благодарность 🙌"
         )
 
     if payload == "buy":
@@ -202,7 +202,7 @@ async def on_info_referral(callback: CallbackQuery):
         "🎁 <b>Приглашай друзей — получай Pro бесплатно</b>\n\n"
         f"Твоя ссылка:\n{link}\n\n"
         "• Другу — 3 дня Pro бесплатно при первом запуске\n"
-        "• Тебе — 5 дней Pro за каждого друга\n\n"
+        "• Тебе — 1 день Pro за каждого друга\n\n"
         f"Уже пригласил: {count}"
     )
     keyboard = InlineKeyboardMarkup(
