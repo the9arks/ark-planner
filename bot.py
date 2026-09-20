@@ -228,9 +228,18 @@ async def on_info_profile(callback: CallbackQuery):
 def _tariffs_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="💳 Pro — 199₽/мес", callback_data="buy_pro_month")],
-            [InlineKeyboardButton(text="💳 Ultra — 599₽/мес", callback_data="buy_ultra_month")],
-            [InlineKeyboardButton(text="Другие периоды", callback_data="buy_periods")],
+            [
+                InlineKeyboardButton(text="Pro — 199₽/мес", callback_data="buy_pro_month"),
+                InlineKeyboardButton(text="Pro — 1990₽/год (-17%)", callback_data="buy_pro_year"),
+            ],
+            [
+                InlineKeyboardButton(text="Ultra — 599₽/мес", callback_data="buy_ultra_month"),
+                InlineKeyboardButton(text="Ultra — 5990₽/год (-17%)", callback_data="buy_ultra_year"),
+            ],
+            [
+                InlineKeyboardButton(text="Pro — 4990₽ навсегда", callback_data="buy_pro_lifetime"),
+                InlineKeyboardButton(text="Ultra — 9990₽ навсегда", callback_data="buy_ultra_lifetime"),
+            ],
             [InlineKeyboardButton(text="🎁 Пригласить друга вместо оплаты", callback_data="info_referral")],
         ]
     )
@@ -249,25 +258,6 @@ async def _send_tariffs(message: Message, caption: str):
 @dp.callback_query(F.data == "info_tariffs")
 async def on_info_tariffs(callback: CallbackQuery):
     await _send_tariffs(callback.message, TARIFFS_TEXT)
-    await callback.answer()
-
-
-@dp.callback_query(F.data == "buy_periods")
-async def on_buy_periods(callback: CallbackQuery):
-    keyboard = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="Pro — 199₽/мес", callback_data="buy_pro_month")],
-            [InlineKeyboardButton(text="Pro — 1990₽/год (-17%, вместо 2388₽)", callback_data="buy_pro_year")],
-            [InlineKeyboardButton(text="Pro — 4990₽ навсегда", callback_data="buy_pro_lifetime")],
-            [InlineKeyboardButton(text="Ultra — 599₽/мес", callback_data="buy_ultra_month")],
-            [InlineKeyboardButton(text="Ultra — 5990₽/год (-17%, вместо 7188₽)", callback_data="buy_ultra_year")],
-            [InlineKeyboardButton(text="Ultra — 9990₽ навсегда", callback_data="buy_ultra_lifetime")],
-        ]
-    )
-    await callback.message.answer(
-        "Выбери тариф и период — год дешевле помесячной оплаты, «навсегда» выгоднее всего при долгом использовании:",
-        reply_markup=keyboard,
-    )
     await callback.answer()
 
 
