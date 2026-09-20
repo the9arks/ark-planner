@@ -161,6 +161,40 @@ async def create_entry(request: web.Request):
     return web.json_response({"reply": reply, "entry_type": data.get("entry_type")})
 
 
+@routes.post("/shortcut/{secret}/entry")
+async def shortcut_entry(request: web.Request):
+    """Quick-capture endpoint for the iOS Action Button / back-tap Shortcut: it
+    dictates text on-device (free, no transcription service needed) and POSTs
+    it here directly, skipping the Telegram chat UI entirely."""
+    secret = request.match_info["secret"]
+    user = await db.get_user_by_quick_secret(secret)
+    if not user:
+        return web.json_response({"error": "unauthorized"}, status=401)
+
+    body = await request.json()
+    text = (body.get("text") or "").strip()
+    if not text:
+        return web.json_response({"error": "empty_text"}, status=400)
+
+    if not await db.check_and_increment_quota(user):
+        return web.json_response({"error": "quota_exceeded"}, status=429)
+
+    tz_offset = user.get("tz_offset", 3)
+    try:
+        data = ai.classify_text(text, tz_offset=tz_offset)
+        data = await core.store_entry(user["id"], data, tz_offset)
+        reply = core.format_reply(data)
+    except Exception:
+        logging.exception("shortcut_entry failed")
+        return web.json_response({"error": "processing_failed"}, status=500)
+
+    telegram_id = user.get("telegram_id")
+    if telegram_id:
+        await core.send_message(telegram_id, f"⚡️ {reply}")
+
+    return web.json_response({"ok": True, "reply": reply})
+
+
 _LIST_FNS = {
     "tasks": db.list_tasks,
     "notes": db.list_notes,

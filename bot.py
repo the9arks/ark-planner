@@ -33,6 +33,7 @@ INTRO_VIDEO_PATH = os.path.join(os.path.dirname(__file__), "assets", "ark-intro.
 
 MINIAPP_URL = os.environ.get("MINIAPP_URL", "https://ark-planner-miniapp.onrender.com")
 BOT_USERNAME = os.environ.get("BOT_USERNAME", "ARKPlannerBot")
+QUICK_CAPTURE_BASE = os.environ.get("QUICK_CAPTURE_BASE", "https://ark-planner-backend.onrender.com")
 SUPPORT_URL = "https://t.me/ark_planner_support"
 PRIVACY_URL = "https://telegra.ph/Politika-konfidencialnosti-ARK-PLANNER-09-19"
 TERMS_URL = "https://telegra.ph/Polzovatelskoe-soglashenie-ARK-PLANNER-09-19-2"
@@ -92,23 +93,26 @@ TARIFFS_TEXT = """\
     free=db.TIER_DAILY_LIMITS["free"], pro=db.TIER_DAILY_LIMITS["pro"]
 )
 
-ACTION_BUTTON_TEXT = """\
-⚡️ <b>Кнопка действия (iPhone 15 Pro и новее)</b>
+def _quick_capture_url(secret: str) -> str:
+    return f"{QUICK_CAPTURE_BASE}/shortcut/{secret}/entry"
 
-Пока настраивается вручную через приложение «Команды»:
-1. Команды → «+» → добавь действие «Диктовка текста»
-2. Добавь действие «Открыть URL»: https://t.me/ARKPlannerBot?text=%TEXT%
-3. Настройки → Кнопка действия → выбери свою команду
 
-Полностью автоматическая настройка в одно нажатие — в разработке."""
+def _shortcut_setup_steps(url: str) -> str:
+    return (
+        "1. Открой приложение «Команды» → «+» → «Добавить действие»\n"
+        "2. Найди и добавь «Надиктовать текст» (Dictate Text)\n"
+        "3. Добавь действие «Получить содержимое URL» (Get Contents of URL):\n"
+        f"   • URL: <code>{url}</code>\n"
+        "   • Метод: POST\n"
+        "   • Тело запроса: JSON → поле <code>text</code> = переменная «Надиктованный текст»\n"
+        "4. Сохрани команду, назови, например, «ARK»"
+    )
 
-DOUBLE_TAP_TEXT = """\
-👆 <b>Двойной тап по задней крышке</b>
 
-Настройки → Специальные возможности → Касание → Нажатие задней панели → Двойное нажатие → \
-выбери ту же команду, что и для кнопки действия (см. /start → «Кнопка действия»).
-
-Полностью автоматическая настройка — в разработке."""
+async def _quick_capture_link(tg_user) -> str:
+    user = await _get_user_from(tg_user)
+    secret = user.get("quick_secret") or await db.get_or_create_quick_secret(user["id"])
+    return _quick_capture_url(secret)
 
 
 def _main_keyboard() -> InlineKeyboardMarkup:
@@ -308,13 +312,30 @@ async def on_buy(callback: CallbackQuery):
 
 @dp.callback_query(F.data == "info_action_button")
 async def on_info_action_button(callback: CallbackQuery):
-    await callback.message.answer(ACTION_BUTTON_TEXT, parse_mode="HTML")
+    url = await _quick_capture_link(callback.from_user)
+    text = (
+        "⚡️ <b>Кнопка действия (iPhone 15 Pro и новее)</b>\n\n"
+        "Настрой один раз — дальше просто: зажал боковую кнопку → сказал → готово, "
+        "без открытия чатов и приложений.\n\n"
+        f"{_shortcut_setup_steps(url)}\n"
+        "5. Настройки → Кнопка действия → выбери команду «ARK»\n\n"
+        "Ссылка личная — не передавай её другим."
+    )
+    await callback.message.answer(text, parse_mode="HTML")
     await callback.answer()
 
 
 @dp.callback_query(F.data == "info_double_tap")
 async def on_info_double_tap(callback: CallbackQuery):
-    await callback.message.answer(DOUBLE_TAP_TEXT, parse_mode="HTML")
+    url = await _quick_capture_link(callback.from_user)
+    text = (
+        "👆 <b>Двойной тап по задней крышке</b>\n\n"
+        f"{_shortcut_setup_steps(url)}\n"
+        "5. Настройки → Специальные возможности → Касание → Нажатие задней панели → "
+        "Двойное нажатие → выбери команду «ARK»\n\n"
+        "Ссылка личная — не передавай её другим."
+    )
+    await callback.message.answer(text, parse_mode="HTML")
     await callback.answer()
 
 
@@ -376,6 +397,17 @@ async def on_set_time(message: Message):
     user = await _get_user(message)
     await db.set_user_time(user["id"], field, f"{hour:02d}:{minute:02d}")
     await message.answer(f"Готово: «{label}» теперь в {hour:02d}:{minute:02d}.")
+
+
+@dp.message(F.voice | F.audio)
+async def on_voice(message: Message):
+    await message.answer(
+        "🎤 Голосовые сообщения в чат пока не распознаю.\n\n"
+        "Два рабочих способа надиктовать:\n"
+        "• Микрофон на клавиатуре — надиктуй прямо в поле ввода, текст появится сам, останется отправить.\n"
+        "• Кнопка действия / двойной тап по крышке — полностью автоматически, без открытия чата "
+        "(инструкция на /start → «Кнопка действия»)."
+    )
 
 
 @dp.message(F.photo)

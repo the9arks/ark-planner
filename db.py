@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import secrets
 from datetime import date, datetime, timedelta, timezone
 
 from supabase import Client, create_client
@@ -199,6 +200,29 @@ def _mark_order_status_sync(order_id: str, status: str) -> None:
 
 async def mark_order_status(order_id: str, status: str) -> None:
     await _run(_mark_order_status_sync, order_id, status)
+
+
+def _get_user_by_quick_secret_sync(secret: str) -> dict | None:
+    rows = get_client().table("users").select("*").eq("quick_secret", secret).execute().data
+    return rows[0] if rows else None
+
+
+async def get_user_by_quick_secret(secret: str) -> dict | None:
+    return await _run(_get_user_by_quick_secret_sync, secret)
+
+
+def _get_or_create_quick_secret_sync(user_id: str) -> str:
+    db = get_client()
+    row = db.table("users").select("quick_secret").eq("id", user_id).execute().data[0]
+    if row.get("quick_secret"):
+        return row["quick_secret"]
+    secret = secrets.token_hex(24)
+    db.table("users").update({"quick_secret": secret}).eq("id", user_id).execute()
+    return secret
+
+
+async def get_or_create_quick_secret(user_id: str) -> str:
+    return await _run(_get_or_create_quick_secret_sync, user_id)
 
 
 def _check_and_increment_quota_sync(user: dict) -> bool:
