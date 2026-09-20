@@ -1235,7 +1235,7 @@ function Onboarding({ onDone }: { onDone: () => void }) {
   const isLast = step === ONBOARDING_SLIDES.length - 1;
 
   return (
-    <div className="fixed inset-0 z-50 bg-[#0b0b0d] flex flex-col max-w-[480px] mx-auto">
+    <div className="fixed inset-0 z-50 ark-gradient-bg flex flex-col max-w-[480px] mx-auto">
       <div className="flex items-center justify-between px-4 py-4">
         <div className="flex items-center gap-2">
           <ArkMark size={28} />
