@@ -1209,7 +1209,82 @@ function SettingsView({
   );
 }
 
+const ONBOARDING_KEY = "ark_onboarding_seen";
+
+const ONBOARDING_SLIDES = [
+  {
+    num: "01",
+    title: "ARK — твоя жизнь в одном месте",
+    text: "Задачи, привычки, встречи, еда и деньги — в одном спокойном месте. Всё начинается с дайджеста дня: открыл и сразу видно, что происходит.",
+  },
+  {
+    num: "02",
+    title: "Говори боту",
+    text: "Надиктуй или напиши одной фразой — сам разложит по разделам: задачи, встречи со временем, еда с калориями, траты и мысли в заметки.",
+  },
+  {
+    num: "03",
+    title: "Фото и утро",
+    text: "Сфоткай еду или чек — калории и траты посчитаются сами. А по утрам — дайджест с планом на день.",
+  },
+];
+
+function Onboarding({ onDone }: { onDone: () => void }) {
+  const [step, setStep] = useState(0);
+  const slide = ONBOARDING_SLIDES[step];
+  const isLast = step === ONBOARDING_SLIDES.length - 1;
+
+  return (
+    <div className="fixed inset-0 z-50 bg-[#0b0b0d] flex flex-col max-w-[480px] mx-auto">
+      <div className="flex items-center justify-between px-4 py-4">
+        <div className="flex items-center gap-2">
+          <ArkMark size={28} />
+          <span className="font-semibold tracking-wide text-sm">ARK PLANNER</span>
+        </div>
+        <button onClick={onDone} className="text-white/40 text-sm">
+          Пропустить
+        </button>
+      </div>
+      <div className="flex-1 flex flex-col px-6 pt-10">
+        <div className="text-white/15 text-6xl font-bold">{slide.num}</div>
+        <div className="text-2xl font-semibold mt-6">{slide.title}</div>
+        <div className="text-white/50 text-sm mt-4 leading-relaxed">{slide.text}</div>
+      </div>
+      <div className="px-6 pb-8">
+        <div className="flex gap-1.5 mb-4">
+          {ONBOARDING_SLIDES.map((_, i) => (
+            <div key={i} className={`h-1 flex-1 rounded-full ${i === step ? "bg-white" : "bg-white/15"}`} />
+          ))}
+        </div>
+        <button
+          onClick={() => (isLast ? onDone() : setStep((s) => s + 1))}
+          className="w-full rounded-xl bg-white text-black text-sm font-medium py-3"
+        >
+          {isLast ? "Начать" : "Далее"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
+  const [showOnboarding, setShowOnboarding] = useState(() => {
+    try {
+      return !localStorage.getItem(ONBOARDING_KEY);
+    } catch {
+      return false;
+    }
+  });
+
+  function finishOnboarding() {
+    try {
+      localStorage.setItem(ONBOARDING_KEY, "1");
+    } catch {
+      // ignore — worst case the onboarding shows again next time
+    }
+    setShowOnboarding(false);
+  }
+
   const [tab, setTab] = useState<TabId>("digest");
   const [digest, setDigest] = useState<Digest | null>(null);
   const [refreshTick, setRefreshTick] = useState(0);
@@ -1238,6 +1313,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen max-w-[480px] mx-auto flex flex-col relative">
+      {showOnboarding && <Onboarding onDone={finishOnboarding} />}
       <header className="flex items-center justify-between px-4 py-4 border-b border-white/10">
         <div className="flex items-center gap-2">
           <ArkMark />
