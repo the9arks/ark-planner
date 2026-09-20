@@ -156,9 +156,11 @@ async def create_entry(request: web.Request):
         reply = core.format_reply(data)
     except ai.ServiceUnavailable:
         logging.exception("create_entry: AI service unavailable")
+        await db.refund_quota(user)
         return web.json_response({"error": "service_unavailable"}, status=503)
     except Exception:
         logging.exception("create_entry failed")
+        await db.refund_quota(user)
         return web.json_response({"error": "processing_failed"}, status=500)
 
     return web.json_response({"reply": reply, "entry_type": data.get("entry_type")})
@@ -189,9 +191,11 @@ async def shortcut_entry(request: web.Request):
         reply = core.format_reply(data)
     except ai.ServiceUnavailable:
         logging.exception("shortcut_entry: AI service unavailable")
+        await db.refund_quota(user)
         return web.json_response({"error": "service_unavailable"}, status=503)
     except Exception:
         logging.exception("shortcut_entry failed")
+        await db.refund_quota(user)
         return web.json_response({"error": "processing_failed"}, status=500)
 
     telegram_id = user.get("telegram_id")

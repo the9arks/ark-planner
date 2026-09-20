@@ -436,10 +436,12 @@ async def on_photo(message: Message):
         reply = core.format_reply(data)
     except ai.ServiceUnavailable:
         logging.exception("on_photo: AI service unavailable")
+        await db.refund_quota(user)
         await message.answer("⚠️ ARK временно недоступен (технические работы) — попробуй через несколько минут.")
         return
     except Exception:
         logging.exception("on_photo failed")
+        await db.refund_quota(user)
         await message.answer("Не смог обработать фото, попробуй ещё раз.")
         return
 
@@ -460,10 +462,12 @@ async def on_text(message: Message):
         reply = core.format_reply(data)
     except ai.ServiceUnavailable:
         logging.exception("on_text: AI service unavailable")
+        await db.refund_quota(user)
         await message.answer("⚠️ ARK временно недоступен (технические работы) — попробуй через несколько минут.")
         return
     except Exception:
         logging.exception("on_text failed")
+        await db.refund_quota(user)
         await message.answer("Не смог разобрать сообщение, попробуй переформулировать.")
         return
 

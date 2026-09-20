@@ -259,6 +259,25 @@ async def check_and_increment_quota(user: dict) -> bool:
     return await _run(_check_and_increment_quota_sync, user)
 
 
+def _refund_quota_sync(user: dict) -> None:
+    """Gives back today's quota slot when the AI call itself failed after
+    check_and_increment_quota already spent it — a transient outage shouldn't
+    cost the user one of their few daily free actions."""
+    if TIER_DAILY_LIMITS.get(effective_tier(user), FREE_DAILY_AI_LIMIT) is None:
+        return
+    db = get_client()
+    today = date.today().isoformat()
+    row = db.table("ai_usage").select("count").eq("user_id", user["id"]).eq("action_date", today).execute()
+    if row.data and row.data[0]["count"] > 0:
+        db.table("ai_usage").update({"count": row.data[0]["count"] - 1}).eq("user_id", user["id"]).eq(
+            "action_date", today
+        ).execute()
+
+
+async def refund_quota(user: dict) -> None:
+    await _run(_refund_quota_sync, user)
+
+
 def _insert_sync(table: str, row: dict) -> dict:
     result = get_client().table(table).insert(row).execute()
     return result.data[0]
