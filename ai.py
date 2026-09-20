@@ -1,27 +1,61 @@
 from __future__ import annotations
 
+import base64
 import json
 import os
 from datetime import datetime, timedelta, timezone
 
-from anthropic import Anthropic, APIError
+PROVIDER = os.environ.get("AI_PROVIDER", "anthropic").lower()
 
-MODEL = "claude-sonnet-5"
+ANTHROPIC_MODEL = "claude-sonnet-5"
 
-_client: Anthropic | None = None
+# "openai" and "deepseek" both speak the OpenAI-compatible Chat Completions
+# API (DeepSeek's docs confirm identical request/response shape, including
+# image_url content blocks), so one code path serves both — only the base
+# URL, API key, and model names differ per provider.
+_OPENAI_COMPAT = {
+    "openai": {
+        "base_url": None,
+        "api_key_env": "OPENAI_API_KEY",
+        "text_model": os.environ.get("OPENAI_TEXT_MODEL", "gpt-4o-mini"),
+        "vision_model": os.environ.get("OPENAI_VISION_MODEL", "gpt-4o-mini"),
+    },
+    "deepseek": {
+        "base_url": "https://api.deepseek.com",
+        "api_key_env": "DEEPSEEK_API_KEY",
+        "text_model": os.environ.get("DEEPSEEK_TEXT_MODEL", "deepseek-chat"),
+        "vision_model": os.environ.get("DEEPSEEK_VISION_MODEL", "deepseek-flash"),
+    },
+}
+
+_anthropic_client = None
+_openai_compat_clients: dict[str, object] = {}
 
 
 class ServiceUnavailable(Exception):
-    """The Claude API call itself failed (rate limit, auth/billing hold,
+    """The provider's API call itself failed (rate limit, auth/billing hold,
     connectivity) — distinct from a JSON-parsing failure, so callers can show
     an honest "we're down" message instead of blaming the user's phrasing."""
 
 
-def get_client() -> Anthropic:
-    global _client
-    if _client is None:
-        _client = Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
-    return _client
+def _get_anthropic_client():
+    global _anthropic_client
+    if _anthropic_client is None:
+        from anthropic import Anthropic
+
+        _anthropic_client = Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+    return _anthropic_client
+
+
+def _get_openai_compat_client(provider: str):
+    if provider not in _openai_compat_clients:
+        from openai import OpenAI
+
+        cfg = _OPENAI_COMPAT[provider]
+        _openai_compat_clients[provider] = OpenAI(
+            api_key=os.environ[cfg["api_key_env"]], base_url=cfg["base_url"]
+        )
+    return _openai_compat_clients[provider]
 
 
 def _system_prompt(tz_offset: int = 3) -> str:
@@ -119,7 +153,16 @@ datetime без указания зоны, в местном времени по
 """
 
 
-def _extract_text(response) -> str:
+def _photo_instruction(caption: str | None) -> str:
+    return (
+        "Определи, это фото чека (entry_type=money) или фото еды (entry_type=food), "
+        "и извлеки данные по схеме. Если чек — сложи все позиции в amount и опиши "
+        "категорию покупки. Если еда — оцени калорийность и БЖУ порции на глаз."
+        + (f"\nПодпись от пользователя: {caption}" if caption else "")
+    )
+
+
+def _extract_anthropic_text(response) -> str:
     for block in response.content:
         if block.type == "text":
             return block.text
@@ -135,23 +178,49 @@ def _parse_json_response(text: str) -> dict:
     return json.loads(text)
 
 
-def classify_text(user_text: str, tz_offset: int = 3) -> dict:
+def _classify_text_anthropic(user_text: str, tz_offset: int) -> dict:
+    from anthropic import APIError
+
     try:
-        response = get_client().messages.create(
-            model=MODEL,
+        response = _get_anthropic_client().messages.create(
+            model=ANTHROPIC_MODEL,
             max_tokens=800,
             system=_system_prompt(tz_offset),
             messages=[{"role": "user", "content": user_text}],
         )
     except APIError as e:
         raise ServiceUnavailable(str(e)) from e
-    return _parse_json_response(_extract_text(response))
+    return _parse_json_response(_extract_anthropic_text(response))
 
 
-def classify_photo(
-    image_bytes: bytes, media_type: str, caption: str | None = None, tz_offset: int = 3
+def _classify_text_openai_compat(provider: str, user_text: str, tz_offset: int) -> dict:
+    from openai import OpenAIError
+
+    try:
+        response = _get_openai_compat_client(provider).chat.completions.create(
+            model=_OPENAI_COMPAT[provider]["text_model"],
+            max_tokens=800,
+            response_format={"type": "json_object"},
+            messages=[
+                {"role": "system", "content": _system_prompt(tz_offset)},
+                {"role": "user", "content": user_text},
+            ],
+        )
+    except OpenAIError as e:
+        raise ServiceUnavailable(str(e)) from e
+    return _parse_json_response(response.choices[0].message.content)
+
+
+def classify_text(user_text: str, tz_offset: int = 3) -> dict:
+    if PROVIDER in _OPENAI_COMPAT:
+        return _classify_text_openai_compat(PROVIDER, user_text, tz_offset)
+    return _classify_text_anthropic(user_text, tz_offset)
+
+
+def _classify_photo_anthropic(
+    image_bytes: bytes, media_type: str, caption: str | None, tz_offset: int
 ) -> dict:
-    import base64
+    from anthropic import APIError
 
     b64_image = base64.b64encode(image_bytes).decode("utf-8")
     content = [
@@ -159,23 +228,48 @@ def classify_photo(
             "type": "image",
             "source": {"type": "base64", "media_type": media_type, "data": b64_image},
         },
-        {
-            "type": "text",
-            "text": (
-                "Определи, это фото чека (entry_type=money) или фото еды (entry_type=food), "
-                "и извлеки данные по схеме. Если чек — сложи все позиции в amount и опиши "
-                "категорию покупки. Если еда — оцени калорийность и БЖУ порции на глаз."
-                + (f"\nПодпись от пользователя: {caption}" if caption else "")
-            ),
-        },
+        {"type": "text", "text": _photo_instruction(caption)},
     ]
     try:
-        response = get_client().messages.create(
-            model=MODEL,
+        response = _get_anthropic_client().messages.create(
+            model=ANTHROPIC_MODEL,
             max_tokens=800,
             system=_system_prompt(tz_offset),
             messages=[{"role": "user", "content": content}],
         )
     except APIError as e:
         raise ServiceUnavailable(str(e)) from e
-    return _parse_json_response(_extract_text(response))
+    return _parse_json_response(_extract_anthropic_text(response))
+
+
+def _classify_photo_openai_compat(
+    provider: str, image_bytes: bytes, media_type: str, caption: str | None, tz_offset: int
+) -> dict:
+    from openai import OpenAIError
+
+    b64_image = base64.b64encode(image_bytes).decode("utf-8")
+    content = [
+        {"type": "text", "text": _photo_instruction(caption)},
+        {"type": "image_url", "image_url": {"url": f"data:{media_type};base64,{b64_image}"}},
+    ]
+    try:
+        response = _get_openai_compat_client(provider).chat.completions.create(
+            model=_OPENAI_COMPAT[provider]["vision_model"],
+            max_tokens=800,
+            response_format={"type": "json_object"},
+            messages=[
+                {"role": "system", "content": _system_prompt(tz_offset)},
+                {"role": "user", "content": content},
+            ],
+        )
+    except OpenAIError as e:
+        raise ServiceUnavailable(str(e)) from e
+    return _parse_json_response(response.choices[0].message.content)
+
+
+def classify_photo(
+    image_bytes: bytes, media_type: str, caption: str | None = None, tz_offset: int = 3
+) -> dict:
+    if PROVIDER in _OPENAI_COMPAT:
+        return _classify_photo_openai_compat(PROVIDER, image_bytes, media_type, caption, tz_offset)
+    return _classify_photo_anthropic(image_bytes, media_type, caption, tz_offset)
