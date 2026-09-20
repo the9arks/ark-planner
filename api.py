@@ -333,9 +333,9 @@ async def create_entry(request: web.Request):
 
     tz_offset = user.get("tz_offset", 3)
     try:
-        data = ai.classify_text(text, tz_offset=tz_offset)
-        data = await core.store_entry(user["id"], data, tz_offset)
-        reply = core.format_reply(data)
+        entries = ai.classify_text(text, tz_offset=tz_offset)
+        entries = await core.store_entries(user["id"], entries, tz_offset)
+        reply = core.format_replies(entries)
     except ai.ServiceUnavailable:
         logging.exception("create_entry: AI service unavailable")
         await db.refund_quota(user)
@@ -345,7 +345,9 @@ async def create_entry(request: web.Request):
         await db.refund_quota(user)
         return web.json_response({"error": "processing_failed"}, status=500)
 
-    return web.json_response({"reply": reply, "entry_type": data.get("entry_type")})
+    return web.json_response(
+        {"reply": reply, "entry_type": entries[0].get("entry_type") if entries else None}
+    )
 
 
 @routes.post("/shortcut/{secret}/entry")
@@ -368,9 +370,9 @@ async def shortcut_entry(request: web.Request):
 
     tz_offset = user.get("tz_offset", 3)
     try:
-        data = ai.classify_text(text, tz_offset=tz_offset)
-        data = await core.store_entry(user["id"], data, tz_offset)
-        reply = core.format_reply(data)
+        entries = ai.classify_text(text, tz_offset=tz_offset)
+        entries = await core.store_entries(user["id"], entries, tz_offset)
+        reply = core.format_replies(entries)
     except ai.ServiceUnavailable:
         logging.exception("shortcut_entry: AI service unavailable")
         await db.refund_quota(user)

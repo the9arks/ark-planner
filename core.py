@@ -114,6 +114,14 @@ async def store_entry(user_id: str, data: dict, tz_offset: int = 3) -> dict:
     return data
 
 
+async def store_entries(user_id: str, entries: list[dict], tz_offset: int = 3) -> list[dict]:
+    """A single message can describe several distinct things at once (a task, a
+    money entry, a habit checkin all in one breath) — classify_text/classify_photo
+    already split the model's response into one dict per thing; this just stores
+    each in turn."""
+    return [await store_entry(user_id, entry, tz_offset) for entry in entries]
+
+
 def format_when(iso_str: str | None) -> str:
     if not iso_str:
         return ""
@@ -175,3 +183,9 @@ def format_reply(data: dict) -> str:
     if comment:
         reply += f"\n\n{comment}"
     return reply
+
+
+def format_replies(entries: list[dict]) -> str:
+    if len(entries) == 1:
+        return format_reply(entries[0])
+    return "\n\n".join(f"{i}. {format_reply(e)}" for i, e in enumerate(entries, start=1))

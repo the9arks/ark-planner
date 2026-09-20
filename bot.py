@@ -422,11 +422,11 @@ async def on_photo(message: Message):
 
     try:
         tz_offset = user.get("tz_offset", 3)
-        data = ai.classify_photo(
+        entries = ai.classify_photo(
             image_bytes, "image/jpeg", caption=message.caption, tz_offset=tz_offset
         )
-        await core.store_entry(user["id"], data, tz_offset)
-        reply = core.format_reply(data)
+        entries = await core.store_entries(user["id"], entries, tz_offset)
+        reply = core.format_replies(entries)
     except ai.ServiceUnavailable:
         logging.exception("on_photo: AI service unavailable")
         await db.refund_quota(user)
@@ -450,9 +450,9 @@ async def on_text(message: Message):
 
     try:
         tz_offset = user.get("tz_offset", 3)
-        data = ai.classify_text(message.text, tz_offset=tz_offset)
-        await core.store_entry(user["id"], data, tz_offset)
-        reply = core.format_reply(data)
+        entries = ai.classify_text(message.text, tz_offset=tz_offset)
+        entries = await core.store_entries(user["id"], entries, tz_offset)
+        reply = core.format_replies(entries)
     except ai.ServiceUnavailable:
         logging.exception("on_text: AI service unavailable")
         await db.refund_quota(user)
