@@ -154,6 +154,9 @@ async def create_entry(request: web.Request):
         data = ai.classify_text(text, tz_offset=tz_offset)
         data = await core.store_entry(user["id"], data, tz_offset)
         reply = core.format_reply(data)
+    except ai.ServiceUnavailable:
+        logging.exception("create_entry: AI service unavailable")
+        return web.json_response({"error": "service_unavailable"}, status=503)
     except Exception:
         logging.exception("create_entry failed")
         return web.json_response({"error": "processing_failed"}, status=500)
@@ -184,6 +187,9 @@ async def shortcut_entry(request: web.Request):
         data = ai.classify_text(text, tz_offset=tz_offset)
         data = await core.store_entry(user["id"], data, tz_offset)
         reply = core.format_reply(data)
+    except ai.ServiceUnavailable:
+        logging.exception("shortcut_entry: AI service unavailable")
+        return web.json_response({"error": "service_unavailable"}, status=503)
     except Exception:
         logging.exception("shortcut_entry failed")
         return web.json_response({"error": "processing_failed"}, status=500)

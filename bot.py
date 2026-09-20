@@ -429,6 +429,10 @@ async def on_photo(message: Message):
         )
         await core.store_entry(user["id"], data, tz_offset)
         reply = core.format_reply(data)
+    except ai.ServiceUnavailable:
+        logging.exception("on_photo: AI service unavailable")
+        await message.answer("⚠️ ARK временно недоступен (технические работы) — попробуй через несколько минут.")
+        return
     except Exception:
         logging.exception("on_photo failed")
         await message.answer("Не смог обработать фото, попробуй ещё раз.")
@@ -449,6 +453,10 @@ async def on_text(message: Message):
         data = ai.classify_text(message.text, tz_offset=tz_offset)
         await core.store_entry(user["id"], data, tz_offset)
         reply = core.format_reply(data)
+    except ai.ServiceUnavailable:
+        logging.exception("on_text: AI service unavailable")
+        await message.answer("⚠️ ARK временно недоступен (технические работы) — попробуй через несколько минут.")
+        return
     except Exception:
         logging.exception("on_text failed")
         await message.answer("Не смог разобрать сообщение, попробуй переформулировать.")

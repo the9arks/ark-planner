@@ -200,6 +200,8 @@ function ComposerBar({ onSubmitted }: { onSubmitted: () => void }) {
       onSubmitted();
     } else if (result.error === "quota_exceeded") {
       setToast("Лимит AI-действий на сегодня исчерпан — загляни в «Настройки» за тарифом");
+    } else if (result.error === "service_unavailable") {
+      setToast("⚠️ ARK временно недоступен (технические работы) — попробуй через несколько минут");
     } else {
       setToast("Не получилось записать, попробуй ещё раз");
     }

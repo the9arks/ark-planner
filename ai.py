@@ -4,11 +4,17 @@ import json
 import os
 from datetime import datetime, timedelta, timezone
 
-from anthropic import Anthropic
+from anthropic import Anthropic, APIError
 
 MODEL = "claude-sonnet-5"
 
 _client: Anthropic | None = None
+
+
+class ServiceUnavailable(Exception):
+    """The Claude API call itself failed (rate limit, auth/billing hold,
+    connectivity) — distinct from a JSON-parsing failure, so callers can show
+    an honest "we're down" message instead of blaming the user's phrasing."""
 
 
 def get_client() -> Anthropic:
@@ -130,12 +136,15 @@ def _parse_json_response(text: str) -> dict:
 
 
 def classify_text(user_text: str, tz_offset: int = 3) -> dict:
-    response = get_client().messages.create(
-        model=MODEL,
-        max_tokens=800,
-        system=_system_prompt(tz_offset),
-        messages=[{"role": "user", "content": user_text}],
-    )
+    try:
+        response = get_client().messages.create(
+            model=MODEL,
+            max_tokens=800,
+            system=_system_prompt(tz_offset),
+            messages=[{"role": "user", "content": user_text}],
+        )
+    except APIError as e:
+        raise ServiceUnavailable(str(e)) from e
     return _parse_json_response(_extract_text(response))
 
 
@@ -160,10 +169,13 @@ def classify_photo(
             ),
         },
     ]
-    response = get_client().messages.create(
-        model=MODEL,
-        max_tokens=800,
-        system=_system_prompt(tz_offset),
-        messages=[{"role": "user", "content": content}],
-    )
+    try:
+        response = get_client().messages.create(
+            model=MODEL,
+            max_tokens=800,
+            system=_system_prompt(tz_offset),
+            messages=[{"role": "user", "content": content}],
+        )
+    except APIError as e:
+        raise ServiceUnavailable(str(e)) from e
     return _parse_json_response(_extract_text(response))
