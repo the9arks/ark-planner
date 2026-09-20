@@ -230,10 +230,10 @@ def _tariffs_keyboard() -> InlineKeyboardMarkup:
         inline_keyboard=[
             [
                 InlineKeyboardButton(text="Pro — 199₽/мес", callback_data="buy_pro_month"),
-                InlineKeyboardButton(text="Pro — 1990₽/год (-17%)", callback_data="buy_pro_year"),
+                InlineKeyboardButton(text="Ultra — 599₽/мес", callback_data="buy_ultra_month"),
             ],
             [
-                InlineKeyboardButton(text="Ultra — 599₽/мес", callback_data="buy_ultra_month"),
+                InlineKeyboardButton(text="Pro — 1990₽/год (-17%)", callback_data="buy_pro_year"),
                 InlineKeyboardButton(text="Ultra — 5990₽/год (-17%)", callback_data="buy_ultra_year"),
             ],
             [
