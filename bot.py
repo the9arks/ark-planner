@@ -487,9 +487,10 @@ async def _run_local_dev(bot: Bot):
     await asyncio.gather(dp.start_polling(bot), asyncio.Event().wait())
 
 
-async def _run_render(bot: Bot, external_url: str):
+async def _run_webhook(bot: Bot, external_url: str):
     """Single aiohttp app serving the Telegram webhook + the Mini App API —
-    what Render's free web service (one process, one port) needs."""
+    one process behind a reverse proxy (nginx on a VPS, or Render's single
+    web service)."""
     import api
     from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
     from aiohttp import web
@@ -537,9 +538,12 @@ async def _setup_bot_commands(bot: Bot):
 async def main():
     bot = Bot(token=os.environ["TELEGRAM_BOT_TOKEN"])
     await _setup_bot_commands(bot)
-    external_url = os.environ.get("RENDER_EXTERNAL_URL")
+    # EXTERNAL_URL is what we set ourselves on a VPS; RENDER_EXTERNAL_URL is
+    # auto-provided by Render — checking both means the same code deploys
+    # to either without a flag day.
+    external_url = os.environ.get("EXTERNAL_URL") or os.environ.get("RENDER_EXTERNAL_URL")
     if external_url:
-        await _run_render(bot, external_url)
+        await _run_webhook(bot, external_url)
     else:
         await _run_local_dev(bot)
 

@@ -1,0 +1,15 @@
+[Unit]
+Description=ARK PLANNER bot + API
+After=network.target
+
+[Service]
+Type=simple
+User=arkplanner
+WorkingDirectory=/opt/ark-planner
+EnvironmentFile=/opt/ark-planner/.env
+ExecStart=/opt/ark-planner/venv/bin/python bot.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
