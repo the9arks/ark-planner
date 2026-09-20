@@ -257,14 +257,17 @@ async def on_buy_periods(callback: CallbackQuery):
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="Pro — 199₽/мес", callback_data="buy_pro_month")],
-            [InlineKeyboardButton(text="Pro — 1990₽/год", callback_data="buy_pro_year")],
+            [InlineKeyboardButton(text="Pro — 1990₽/год (-17%, вместо 2388₽)", callback_data="buy_pro_year")],
             [InlineKeyboardButton(text="Pro — 4990₽ навсегда", callback_data="buy_pro_lifetime")],
             [InlineKeyboardButton(text="Ultra — 599₽/мес", callback_data="buy_ultra_month")],
-            [InlineKeyboardButton(text="Ultra — 5990₽/год", callback_data="buy_ultra_year")],
+            [InlineKeyboardButton(text="Ultra — 5990₽/год (-17%, вместо 7188₽)", callback_data="buy_ultra_year")],
             [InlineKeyboardButton(text="Ultra — 9990₽ навсегда", callback_data="buy_ultra_lifetime")],
         ]
     )
-    await callback.message.answer("Выбери тариф:", reply_markup=keyboard)
+    await callback.message.answer(
+        "Выбери тариф и период — год дешевле помесячной оплаты, «навсегда» выгоднее всего при долгом использовании:",
+        reply_markup=keyboard,
+    )
     await callback.answer()
 
 
@@ -506,7 +509,10 @@ async def _run_render(bot: Bot, external_url: str):
     setup_application(app, dp, bot=bot)
 
     async def _on_startup(_):
-        await bot.set_webhook(f"{external_url}{WEBHOOK_PATH}")
+        await bot.set_webhook(
+            f"{external_url}{WEBHOOK_PATH}",
+            allowed_updates=dp.resolve_used_update_types(),
+        )
         logging.info(f"Webhook set to {external_url}{WEBHOOK_PATH}")
 
     app.on_startup.append(_on_startup)
