@@ -15,7 +15,7 @@ services:
       - key: ANTHROPIC_API_KEY
         sync: false
       - key: AI_PROVIDER
-        value: anthropic
+        sync: false
       - key: OPENAI_API_KEY
         sync: false
       - key: DEEPSEEK_API_KEY
