@@ -13,7 +13,8 @@ TIER_DAILY_LIMITS = {"free": 3, "pro": 10, "ultra": None}
 FREE_DAILY_AI_LIMIT = TIER_DAILY_LIMITS["free"]
 
 REFEREE_BONUS_DAYS = 3
-REFERRER_BONUS_DAYS = 1
+REFERRER_BONUS_DAYS = 3
+TRIAL_DAYS = 3
 
 
 def get_client() -> Client:
@@ -94,6 +95,29 @@ def _grant_referral_bonus_sync(referee_id: str, referrer_id: str) -> None:
 def _count_referrals_sync(user_id: str) -> int:
     result = get_client().table("users").select("id", count="exact").eq("referred_by", user_id).execute()
     return result.count or 0
+
+
+def _claim_trial_sync(user_id: str) -> bool:
+    """Grants the one-time 3-day Pro trial, gated on the user having actually
+    opened the Mini App (not just /start) — a cheap signal against drive-by
+    abuse. Returns False if already claimed or already on a paid tier."""
+    db = get_client()
+    user = db.table("users").select("tier, trial_granted_at").eq("id", user_id).execute().data[0]
+    if user.get("trial_granted_at") or (user.get("tier") or "free") != "free":
+        return False
+    now = datetime.now(timezone.utc)
+    db.table("users").update(
+        {
+            "tier": "pro",
+            "tier_expires_at": (now + timedelta(days=TRIAL_DAYS)).isoformat(),
+            "trial_granted_at": now.isoformat(),
+        }
+    ).eq("id", user_id).execute()
+    return True
+
+
+async def claim_trial(user_id: str) -> bool:
+    return await _run(_claim_trial_sync, user_id)
 
 
 async def count_referrals(user_id: str) -> int:

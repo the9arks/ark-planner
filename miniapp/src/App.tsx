@@ -3,6 +3,7 @@ import {
   addTaskManual,
   cancelMeeting,
   checkinHabit,
+  claimTrial,
   createOrder,
   getDigest,
   getFoodSummary,
@@ -1267,6 +1268,8 @@ export default function App() {
     }
   });
 
+  const [trialToast, setTrialToast] = useState<string | null>(null);
+
   function finishOnboarding() {
     try {
       localStorage.setItem(ONBOARDING_KEY, "1");
@@ -1274,6 +1277,15 @@ export default function App() {
       // ignore — worst case the onboarding shows again next time
     }
     setShowOnboarding(false);
+    // Opening the app and clicking through onboarding is the "did something,
+    // not just /start" signal that earns the one-time trial.
+    claimTrial().then((granted) => {
+      if (granted) {
+        setTrialToast("🎁 Тебе начислено 3 дня Pro — пробуй все функции!");
+        setRefreshTick((t) => t + 1);
+        setTimeout(() => setTrialToast(null), 6000);
+      }
+    });
   }
 
   const [tab, setTab] = useState<TabId>("digest");
@@ -1305,6 +1317,11 @@ export default function App() {
   return (
     <div className="min-h-screen max-w-[480px] mx-auto flex flex-col relative">
       {showOnboarding && <Onboarding onDone={finishOnboarding} />}
+      {trialToast && (
+        <div className="fixed top-3 left-1/2 -translate-x-1/2 z-40 max-w-[90%] rounded-xl border border-white/15 bg-[#16161a]/95 backdrop-blur px-4 py-2.5 text-sm text-center shadow-lg">
+          {trialToast}
+        </div>
+      )}
       <header className="flex items-center justify-between px-4 py-4 border-b border-white/10">
         <div className="flex items-center gap-2">
           <ArkMark />

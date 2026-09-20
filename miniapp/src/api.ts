@@ -160,6 +160,15 @@ export async function createOrder(tier: string, period: string): Promise<OrderRe
   return data;
 }
 
+export async function claimTrial(): Promise<boolean> {
+  try {
+    const res = await apiPost<{ granted: boolean }>("/api/trial/claim", {});
+    return res.granted;
+  } catch {
+    return false;
+  }
+}
+
 export function getSection<T = Record<string, unknown>>(section: string) {
   return apiGet<{ items: T[] }>(`/api/${section}`);
 }

@@ -92,6 +92,15 @@ async def get_digest(request: web.Request):
     )
 
 
+@routes.post("/api/trial/claim")
+async def claim_trial(request: web.Request):
+    user = await _authenticate(request)
+    if not user:
+        return web.json_response({"error": "unauthorized"}, status=401)
+    granted = await db.claim_trial(user["id"])
+    return web.json_response({"granted": granted})
+
+
 @routes.get("/api/money/summary")
 async def get_money_summary(request: web.Request):
     user = await _authenticate(request)
