@@ -86,10 +86,10 @@ TARIFFS_TEXT = """\
 💳 <b>Тарифы ARK PLANNER</b>
 
 <b>Free</b> — {free} AI-действий в день, 0₽
-<b>Pro</b> — {pro} AI-действий в день, 199₽/мес (1990₽/год, 4990₽ навсегда)
-<b>Ultra</b> — безлимит, 599₽/мес (5990₽/год, 9990₽ навсегда)
+<b>Pro</b> — {pro} AI-действий в день, <s>399₽</s> <b>199₽/мес</b> (<s>3990₽</s> <b>1990₽/год</b>, <s>9990₽</s> <b>4990₽ навсегда</b>)
+<b>Ultra</b> — безлимит, <s>1199₽</s> <b>599₽/мес</b> (<s>11990₽</s> <b>5990₽/год</b>, <s>19990₽</s> <b>9990₽ навсегда</b>)
 
-Выбери тариф кнопкой ниже.""".format(
+🔥 Скидка -50% — выбери тариф кнопкой ниже.""".format(
     free=db.TIER_DAILY_LIMITS["free"], pro=db.TIER_DAILY_LIMITS["pro"]
 )
 
@@ -229,16 +229,16 @@ def _tariffs_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text="Pro — 199₽/мес", callback_data="buy_pro_month"),
-                InlineKeyboardButton(text="Ultra — 599₽/мес", callback_data="buy_ultra_month"),
+                InlineKeyboardButton(text="Pro — 199₽/мес (-50%)", callback_data="buy_pro_month"),
+                InlineKeyboardButton(text="Ultra — 599₽/мес (-50%)", callback_data="buy_ultra_month"),
             ],
             [
-                InlineKeyboardButton(text="Pro — 1990₽/год (-17%)", callback_data="buy_pro_year"),
-                InlineKeyboardButton(text="Ultra — 5990₽/год (-17%)", callback_data="buy_ultra_year"),
+                InlineKeyboardButton(text="Pro — 1990₽/год (-50%)", callback_data="buy_pro_year"),
+                InlineKeyboardButton(text="Ultra — 5990₽/год (-50%)", callback_data="buy_ultra_year"),
             ],
             [
-                InlineKeyboardButton(text="Pro — 4990₽ навсегда", callback_data="buy_pro_lifetime"),
-                InlineKeyboardButton(text="Ultra — 9990₽ навсегда", callback_data="buy_ultra_lifetime"),
+                InlineKeyboardButton(text="Pro — 4990₽ навсегда (-50%)", callback_data="buy_pro_lifetime"),
+                InlineKeyboardButton(text="Ultra — 9990₽ навсегда (-50%)", callback_data="buy_ultra_lifetime"),
             ],
             [InlineKeyboardButton(text="🎁 Пригласить друга вместо оплаты", callback_data="info_referral")],
         ]

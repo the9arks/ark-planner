@@ -18,6 +18,12 @@ PRICING = {
     "pro": {"month": 199, "year": 1990, "lifetime": 4990},
     "ultra": {"month": 599, "year": 5990, "lifetime": 9990},
 }
+# "Was" prices shown crossed out next to the real price for a discount look
+# (~2x the real price). Display-only — never charged, actual amount is PRICING.
+WAS_PRICING = {
+    "pro": {"month": 399, "year": 3990, "lifetime": 9990},
+    "ultra": {"month": 1199, "year": 11990, "lifetime": 19990},
+}
 PERIOD_DAYS = {"month": 30, "year": 365, "lifetime": None}
 PERIOD_LABEL = {"month": "1 месяц", "year": "1 год", "lifetime": "навсегда"}
 TIER_LABEL = {"pro": "Pro", "ultra": "Ultra"}

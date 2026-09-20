@@ -1066,13 +1066,19 @@ function TimezoneRow({
   );
 }
 
-const TARIFF_OPTIONS: { tier: "pro" | "ultra"; period: "month" | "year" | "lifetime"; label: string }[] = [
-  { tier: "pro", period: "month", label: "Pro — 199₽/мес" },
-  { tier: "ultra", period: "month", label: "Ultra — 599₽/мес" },
-  { tier: "pro", period: "year", label: "Pro — 1990₽/год (-17%)" },
-  { tier: "ultra", period: "year", label: "Ultra — 5990₽/год (-17%)" },
-  { tier: "pro", period: "lifetime", label: "Pro — 4990₽ навсегда" },
-  { tier: "ultra", period: "lifetime", label: "Ultra — 9990₽ навсегда" },
+const TARIFF_OPTIONS: {
+  tier: "pro" | "ultra";
+  period: "month" | "year" | "lifetime";
+  label: string;
+  wasPrice: string;
+  price: string;
+}[] = [
+  { tier: "pro", period: "month", label: "Pro / мес", wasPrice: "399₽", price: "199₽" },
+  { tier: "ultra", period: "month", label: "Ultra / мес", wasPrice: "1199₽", price: "599₽" },
+  { tier: "pro", period: "year", label: "Pro / год", wasPrice: "3990₽", price: "1990₽" },
+  { tier: "ultra", period: "year", label: "Ultra / год", wasPrice: "11990₽", price: "5990₽" },
+  { tier: "pro", period: "lifetime", label: "Pro навсегда", wasPrice: "9990₽", price: "4990₽" },
+  { tier: "ultra", period: "lifetime", label: "Ultra навсегда", wasPrice: "19990₽", price: "9990₽" },
 ];
 
 function openExternal(url: string) {
@@ -1117,13 +1123,16 @@ function TariffPurchase() {
         </div>
         <div className="rounded-xl border border-white/20 bg-white/[0.06] p-2 text-center">
           <div className="text-[10px] text-white/60">PRO</div>
-          <div className="text-sm font-semibold mt-1">199₽</div>
+          <div className="text-[10px] text-white/30 line-through">399₽</div>
+          <div className="text-sm font-semibold text-emerald-400">199₽</div>
         </div>
         <div className="rounded-xl border border-white/20 bg-white/[0.06] p-2 text-center">
           <div className="text-[10px] text-white/60">ULTRA</div>
-          <div className="text-sm font-semibold mt-1">599₽</div>
+          <div className="text-[10px] text-white/30 line-through">1199₽</div>
+          <div className="text-sm font-semibold text-emerald-400">599₽</div>
         </div>
       </div>
+      <div className="text-center text-[11px] text-emerald-400 font-semibold">🔥 Скидка -50%</div>
       <div className="grid grid-cols-2 gap-2">
         {TARIFF_OPTIONS.map((opt) => {
           const key = `${opt.tier}_${opt.period}`;
@@ -1132,9 +1141,17 @@ function TariffPurchase() {
               key={key}
               disabled={busyKey === key}
               onClick={() => buy(opt.tier, opt.period)}
-              className="rounded-xl bg-white/[0.06] border border-white/10 text-xs py-2.5 px-2 disabled:opacity-50"
+              className="rounded-xl bg-white/[0.06] border border-white/10 text-xs py-2 px-2 disabled:opacity-50 flex flex-col items-center gap-0.5"
             >
-              {busyKey === key ? "…" : opt.label}
+              <span className="text-white/50">{opt.label}</span>
+              {busyKey === key ? (
+                <span>…</span>
+              ) : (
+                <span className="flex items-center gap-1.5">
+                  <span className="text-white/30 line-through">{opt.wasPrice}</span>
+                  <span className="font-semibold text-emerald-400">{opt.price}</span>
+                </span>
+              )}
             </button>
           );
         })}
@@ -1221,6 +1238,33 @@ const ONBOARDING_SLIDES = [
   },
 ];
 
+function TrialOffer({ onAccept, onSkip }: { onAccept: () => void; onSkip: () => void }) {
+  const [claiming, setClaiming] = useState(false);
+
+  return (
+    <div className="fixed inset-0 z-50 ark-gradient-bg flex flex-col items-center justify-center max-w-[480px] mx-auto px-6 text-center">
+      <div className="text-5xl mb-5">🎁</div>
+      <div className="text-2xl font-semibold">Дарим тебе 3 дня Pro</div>
+      <div className="text-white/50 text-sm mt-3 leading-relaxed max-w-[320px]">
+        Безлимит AI-действий, встречи, цели по деньгам и еде — попробуй всё бесплатно 3 дня, без карты и обязательств.
+      </div>
+      <button
+        disabled={claiming}
+        onClick={() => {
+          setClaiming(true);
+          onAccept();
+        }}
+        className="w-full max-w-[320px] rounded-xl bg-white text-black text-sm font-medium py-3 mt-8 disabled:opacity-60"
+      >
+        {claiming ? "…" : "Принять подарок"}
+      </button>
+      <button onClick={onSkip} className="text-white/40 text-sm mt-4">
+        Может позже
+      </button>
+    </div>
+  );
+}
+
 function Onboarding({ onDone }: { onDone: () => void }) {
   const [step, setStep] = useState(0);
   const slide = ONBOARDING_SLIDES[step];
@@ -1269,6 +1313,7 @@ export default function App() {
   });
 
   const [trialToast, setTrialToast] = useState<string | null>(null);
+  const [showTrialOffer, setShowTrialOffer] = useState(false);
 
   function finishOnboarding() {
     try {
@@ -1278,8 +1323,14 @@ export default function App() {
     }
     setShowOnboarding(false);
     // Opening the app and clicking through onboarding is the "did something,
-    // not just /start" signal that earns the one-time trial.
+    // not just /start" signal that earns the one-time trial offer — but the
+    // grant itself only happens once the person taps "Принять подарок".
+    setShowTrialOffer(true);
+  }
+
+  function acceptTrial() {
     claimTrial().then((granted) => {
+      setShowTrialOffer(false);
       if (granted) {
         setTrialToast("🎁 Тебе начислено 3 дня Pro — пробуй все функции!");
         setRefreshTick((t) => t + 1);
@@ -1317,6 +1368,9 @@ export default function App() {
   return (
     <div className="min-h-screen max-w-[480px] mx-auto flex flex-col relative">
       {showOnboarding && <Onboarding onDone={finishOnboarding} />}
+      {!showOnboarding && showTrialOffer && (
+        <TrialOffer onAccept={acceptTrial} onSkip={() => setShowTrialOffer(false)} />
+      )}
       {trialToast && (
         <div className="fixed top-3 left-1/2 -translate-x-1/2 z-40 max-w-[90%] rounded-xl border border-white/15 bg-[#16161a]/95 backdrop-blur px-4 py-2.5 text-sm text-center shadow-lg">
           {trialToast}
