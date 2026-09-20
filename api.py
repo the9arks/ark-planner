@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
 import logging
@@ -383,7 +384,10 @@ async def shortcut_entry(request: web.Request):
 
     telegram_id = user.get("telegram_id")
     if telegram_id:
-        await core.send_message(telegram_id, f"⚡️ {reply}")
+        # The Shortcut already gets `reply` in this response — the Telegram
+        # message is just a courtesy confirmation, no reason to make the
+        # caller wait on another network round-trip for it.
+        asyncio.ensure_future(core.send_message(telegram_id, f"⚡️ {reply}"))
 
     return web.json_response({"ok": True, "reply": reply})
 
