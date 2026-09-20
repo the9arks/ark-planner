@@ -1116,20 +1116,23 @@ function TariffPurchase() {
 
   return (
     <div className="flex flex-col gap-2 mt-4">
+      <div className="text-center font-display font-bold text-lg leading-tight bg-gradient-to-r from-amber-200 via-white to-amber-200 bg-clip-text text-transparent">
+        Включи ARK на полную ⚡️
+      </div>
       <div className="grid grid-cols-3 gap-2">
         <div className="rounded-xl border border-white/10 bg-white/[0.02] p-2 text-center">
           <div className="text-[10px] text-white/40 tracking-wide">FREE</div>
-          <div className="text-sm font-bold tracking-tight mt-1">0₽</div>
+          <div className="font-display text-sm font-bold mt-1">0₽</div>
         </div>
         <div className="rounded-xl border border-amber-200/20 bg-gradient-to-b from-amber-400/[0.08] to-white/[0.02] p-2 text-center">
           <div className="text-[10px] text-white/60 tracking-wide">PRO</div>
           <div className="text-[10px] text-white/30 line-through">399₽</div>
-          <div className="text-base font-bold tracking-tight text-amber-200">199₽</div>
+          <div className="font-display text-base font-bold text-amber-200">199₽</div>
         </div>
         <div className="rounded-xl border border-amber-200/20 bg-gradient-to-b from-amber-400/[0.08] to-white/[0.02] p-2 text-center">
           <div className="text-[10px] text-white/60 tracking-wide">ULTRA</div>
           <div className="text-[10px] text-white/30 line-through">1199₽</div>
-          <div className="text-base font-bold tracking-tight text-amber-200">599₽</div>
+          <div className="font-display text-base font-bold text-amber-200">599₽</div>
         </div>
       </div>
       <div className="mx-auto rounded-full border border-amber-200/25 bg-amber-400/10 px-3 py-1 text-[11px] font-semibold tracking-wide text-amber-200">
@@ -1151,7 +1154,7 @@ function TariffPurchase() {
               ) : (
                 <span className="flex items-center gap-1.5">
                   <span className="text-white/30 line-through">{opt.wasPrice}</span>
-                  <span className="font-bold tracking-tight text-amber-200">{opt.price}</span>
+                  <span className="font-display font-bold text-amber-200">{opt.price}</span>
                 </span>
               )}
             </button>
