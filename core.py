@@ -48,6 +48,37 @@ def streak_days(streak_start_date: str | None, today) -> int | None:
     return (today - start).days
 
 
+def _consecutive_days(checkin_dates: set, today) -> int:
+    """Consecutive-day streak ending today, or ending yesterday if today hasn't
+    been checked in yet (so the streak doesn't drop to 0 the moment midnight
+    passes, before the user has had a chance to check in)."""
+    day = today
+    if day not in checkin_dates:
+        day -= timedelta(days=1)
+    streak = 0
+    while day in checkin_dates:
+        streak += 1
+        day -= timedelta(days=1)
+    return streak
+
+
+async def compute_habit_streak(habit: dict, tz_offset: int = 3) -> int:
+    """"Отказы" (quit habits) track days since the last relapse — no daily
+    check-in required, absence of a relapse is the point. "Привычки" (build
+    habits) need an actual consecutive run of check-ins, computed from
+    ritual_logs, not just elapsed calendar time since the habit was defined."""
+    today = datetime.now(timezone(timedelta(hours=tz_offset))).date()
+    if habit.get("habit_type") == "quit":
+        return streak_days(habit.get("streak_start_date"), today) or 0
+
+    timestamps = await db.get_ritual_log_timestamps(habit["id"])
+    checkin_dates = set()
+    for ts in timestamps:
+        dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+        checkin_dates.add(dt.astimezone(timezone(timedelta(hours=tz_offset))).date())
+    return _consecutive_days(checkin_dates, today)
+
+
 async def store_entry(user_id: str, data: dict, tz_offset: int = 3) -> dict:
     entry_type = data.get("entry_type")
     if entry_type == "task":
@@ -101,12 +132,12 @@ async def store_entry(user_id: str, data: dict, tz_offset: int = 3) -> dict:
                 data.get("reminder_lead_minutes"),
                 data.get("habit_type") or "build",
             )
-            data["streak_days"] = streak_days(habit.get("streak_start_date"), user_today)
+            data["streak_days"] = await compute_habit_streak(habit, tz_offset)
         elif action == "checkin":
             habit = await db.find_habit(user_id, title)
             await db.add_ritual_log(user_id, habit["title"] if habit else title)
             if habit:
-                data["streak_days"] = streak_days(habit.get("streak_start_date"), user_today)
+                data["streak_days"] = await compute_habit_streak(habit, tz_offset)
         else:
             await db.add_ritual_log(user_id, title)
     else:

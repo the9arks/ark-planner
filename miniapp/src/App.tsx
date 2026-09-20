@@ -294,14 +294,7 @@ interface Habit {
   days_of_week: string[] | null;
   start_time: string | null;
   streak_start_date: string | null;
-}
-
-function streakDays(streakStartDate: string | null): number {
-  if (!streakStartDate) return 0;
-  const start = new Date(streakStartDate + "T00:00:00");
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  return Math.max(0, Math.round((today.getTime() - start.getTime()) / 86400000));
+  current_streak: number;
 }
 
 const WEEKDAY_RU_SHORT: Record<string, string> = {
@@ -316,7 +309,7 @@ function HabitCard({
   onAction: (habitId: string, kind: "checkin" | "relapse") => Promise<void>;
 }) {
   const isQuit = habit.habit_type === "quit";
-  const days = streakDays(habit.streak_start_date);
+  const days = habit.current_streak;
   const schedule =
     habit.days_of_week && habit.start_time
       ? habit.days_of_week.map((d) => WEEKDAY_RU_SHORT[d] ?? d).join(", ") +
@@ -402,9 +395,7 @@ function HabitsView({ refreshTick, onChanged }: { refreshTick: number; onChanged
       setHabits((prev) =>
         prev
           ? prev.map((h) =>
-              h.id === habitId
-                ? { ...h, streak_start_date: kind === "relapse" ? new Date().toISOString().slice(0, 10) : h.streak_start_date }
-                : h
+              h.id === habitId ? { ...h, current_streak: result.streak_days ?? h.current_streak } : h
             )
           : prev
       );

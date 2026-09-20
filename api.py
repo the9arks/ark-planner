@@ -216,8 +216,7 @@ async def habit_checkin(request: web.Request):
 
     await db.add_ritual_log(user["id"], habit["title"])
     tz_offset = user.get("tz_offset", 3)
-    today = datetime.now(timezone(timedelta(hours=tz_offset))).date()
-    streak = core.streak_days(habit.get("streak_start_date"), today)
+    streak = await core.compute_habit_streak(habit, tz_offset)
     streak_str = f" · день {streak}" if streak is not None else ""
     return web.json_response(
         {"ok": True, "streak_days": streak, "reply": f"✅ «{habit['title']}»{streak_str} — так держать."}
@@ -411,6 +410,10 @@ async def get_section(request: web.Request):
         return web.json_response({"error": "unauthorized"}, status=401)
 
     items = await list_fn(user["id"])
+    if section == "rituals":
+        tz_offset = user.get("tz_offset", 3)
+        for item in items:
+            item["current_streak"] = await core.compute_habit_streak(item, tz_offset)
     return web.json_response({"items": items})
 
 

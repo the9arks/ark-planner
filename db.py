@@ -645,6 +645,22 @@ async def get_habit(habit_id: str) -> dict | None:
     return await _run(_get_habit_sync, habit_id)
 
 
+def _get_ritual_log_timestamps_sync(ritual_id: str) -> list[str]:
+    rows = (
+        get_client()
+        .table("ritual_logs")
+        .select("done_at")
+        .eq("ritual_id", ritual_id)
+        .execute()
+        .data
+    )
+    return [r["done_at"] for r in rows]
+
+
+async def get_ritual_log_timestamps(ritual_id: str) -> list[str]:
+    return await _run(_get_ritual_log_timestamps_sync, ritual_id)
+
+
 def _list_sync(table: str, user_id: str, limit: int) -> list[dict]:
     result = (
         get_client()
