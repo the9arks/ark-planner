@@ -440,6 +440,12 @@ function SettingsView({
         <div className="text-white/40 text-sm">Тариф</div>
         <div className="text-2xl font-semibold mt-1">{TIER_LABELS[user.tier]}</div>
         <div className="text-white/50 text-sm mt-2">{limitLabel}</div>
+        <button
+          onClick={() => window.Telegram?.WebApp?.openTelegramLink("https://t.me/ARKPlannerBot?start=buy")}
+          className="mt-4 w-full rounded-xl bg-white text-black text-sm font-medium py-2.5"
+        >
+          {user.tier === "free" ? "Купить подписку" : "Управлять подпиской"}
+        </button>
       </div>
 
       <TimezoneRow value={user.tz_offset} onSaved={onTzSaved} />

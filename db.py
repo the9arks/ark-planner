@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import os
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 
 from supabase import Client, create_client
 
@@ -23,24 +23,187 @@ async def _run(fn, *args, **kwargs):
     return await asyncio.to_thread(fn, *args, **kwargs)
 
 
-def _get_or_create_user_sync(telegram_id: int, username: str | None, first_name: str | None) -> dict:
+def _get_or_create_user_sync(
+    telegram_id: int,
+    username: str | None,
+    first_name: str | None,
+    referrer_telegram_id: int | None = None,
+) -> dict:
     db = get_client()
     existing = db.table("users").select("*").eq("telegram_id", telegram_id).execute()
     if existing.data:
-        return existing.data[0]
-    created = db.table("users").insert(
-        {"telegram_id": telegram_id, "username": username, "first_name": first_name}
-    ).execute()
-    return created.data[0]
+        user = existing.data[0]
+        user["_is_new"] = False
+        return user
+
+    row = {"telegram_id": telegram_id, "username": username, "first_name": first_name}
+    referrer = None
+    if referrer_telegram_id and referrer_telegram_id != telegram_id:
+        ref_rows = db.table("users").select("id").eq("telegram_id", referrer_telegram_id).execute().data
+        if ref_rows:
+            referrer = ref_rows[0]
+            row["referred_by"] = referrer["id"]
+
+    created = db.table("users").insert(row).execute().data[0]
+    if referrer:
+        _grant_referral_bonus_sync(created["id"], referrer["id"])
+        created = db.table("users").select("*").eq("id", created["id"]).execute().data[0]
+
+    created["_is_new"] = True
+    return created
 
 
-async def get_or_create_user(telegram_id: int, username: str | None, first_name: str | None) -> dict:
-    return await _run(_get_or_create_user_sync, telegram_id, username, first_name)
+async def get_or_create_user(
+    telegram_id: int,
+    username: str | None,
+    first_name: str | None,
+    referrer_telegram_id: int | None = None,
+) -> dict:
+    return await _run(_get_or_create_user_sync, telegram_id, username, first_name, referrer_telegram_id)
+
+
+def _grant_referral_bonus_sync(referee_id: str, referrer_id: str) -> None:
+    db = get_client()
+    now = datetime.now(timezone.utc)
+
+    db.table("users").update(
+        {"tier": "pro", "tier_expires_at": (now + timedelta(days=3)).isoformat()}
+    ).eq("id", referee_id).execute()
+
+    referrer = db.table("users").select("tier, tier_expires_at").eq("id", referrer_id).execute().data[0]
+    tier = referrer.get("tier") or "free"
+    base = now
+    if tier in ("pro", "ultra") and referrer.get("tier_expires_at"):
+        try:
+            exp_dt = datetime.fromisoformat(referrer["tier_expires_at"].replace("Z", "+00:00"))
+            if exp_dt > now:
+                base = exp_dt
+        except ValueError:
+            pass
+    if tier not in ("pro", "ultra"):
+        tier = "pro"
+    db.table("users").update(
+        {"tier": tier, "tier_expires_at": (base + timedelta(days=5)).isoformat()}
+    ).eq("id", referrer_id).execute()
+
+
+def _count_referrals_sync(user_id: str) -> int:
+    result = get_client().table("users").select("id", count="exact").eq("referred_by", user_id).execute()
+    return result.count or 0
+
+
+async def count_referrals(user_id: str) -> int:
+    return await _run(_count_referrals_sync, user_id)
+
+
+def effective_tier(user: dict) -> str:
+    """Tier accounting for expiration — a lapsed pro/ultra reads back as free
+    without needing a write, so callers never have to think about cleanup."""
+    tier = user.get("tier") or "free"
+    if tier == "free":
+        return "free"
+    expires_at = user.get("tier_expires_at")
+    if not expires_at:
+        return tier
+    try:
+        exp_dt = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+    except ValueError:
+        return tier
+    return "free" if exp_dt <= datetime.now(timezone.utc) else tier
+
+
+def _grant_tier_sync(user_id: str, tier: str, days: int | None) -> dict:
+    db = get_client()
+    now = datetime.now(timezone.utc)
+    if days is None:
+        expires_at = None
+    else:
+        existing = db.table("users").select("tier, tier_expires_at").eq("id", user_id).execute().data[0]
+        base = now
+        if existing.get("tier") == tier and existing.get("tier_expires_at"):
+            try:
+                exp_dt = datetime.fromisoformat(existing["tier_expires_at"].replace("Z", "+00:00"))
+                if exp_dt > now:
+                    base = exp_dt
+            except ValueError:
+                pass
+        expires_at = (base + timedelta(days=days)).isoformat()
+    return (
+        db.table("users")
+        .update({"tier": tier, "tier_expires_at": expires_at})
+        .eq("id", user_id)
+        .execute()
+        .data[0]
+    )
+
+
+async def grant_tier(user_id: str, tier: str, days: int | None) -> dict:
+    return await _run(_grant_tier_sync, user_id, tier, days)
+
+
+def _downgrade_expired_users_sync() -> None:
+    now_iso = datetime.now(timezone.utc).isoformat()
+    get_client().table("users").update({"tier": "free", "tier_expires_at": None}).neq(
+        "tier", "free"
+    ).lt("tier_expires_at", now_iso).execute()
+
+
+async def downgrade_expired_users() -> None:
+    await _run(_downgrade_expired_users_sync)
+
+
+def _create_order_sync(user_id: str, tier: str, period: str, amount: float) -> dict:
+    return (
+        get_client()
+        .table("orders")
+        .insert({"user_id": user_id, "tier": tier, "period": period, "amount": amount, "status": "pending"})
+        .execute()
+        .data[0]
+    )
+
+
+async def create_order(user_id: str, tier: str, period: str, amount: float) -> dict:
+    return await _run(_create_order_sync, user_id, tier, period, amount)
+
+
+def _set_order_transaction_sync(order_id: str, transaction_id: str) -> None:
+    get_client().table("orders").update({"transaction_id": transaction_id}).eq("id", order_id).execute()
+
+
+async def set_order_transaction(order_id: str, transaction_id: str) -> None:
+    await _run(_set_order_transaction_sync, order_id, transaction_id)
+
+
+def _get_order_by_transaction_sync(transaction_id: str) -> dict | None:
+    rows = (
+        get_client()
+        .table("orders")
+        .select("*, users(id, telegram_id)")
+        .eq("transaction_id", transaction_id)
+        .execute()
+        .data
+    )
+    return rows[0] if rows else None
+
+
+async def get_order_by_transaction(transaction_id: str) -> dict | None:
+    return await _run(_get_order_by_transaction_sync, transaction_id)
+
+
+def _mark_order_status_sync(order_id: str, status: str) -> None:
+    fields = {"status": status}
+    if status == "confirmed":
+        fields["confirmed_at"] = datetime.now(timezone.utc).isoformat()
+    get_client().table("orders").update(fields).eq("id", order_id).execute()
+
+
+async def mark_order_status(order_id: str, status: str) -> None:
+    await _run(_mark_order_status_sync, order_id, status)
 
 
 def _check_and_increment_quota_sync(user: dict) -> bool:
     """Returns True if the action is allowed (and records it), False if quota exceeded."""
-    limit = TIER_DAILY_LIMITS.get(user.get("tier") or "free", FREE_DAILY_AI_LIMIT)
+    limit = TIER_DAILY_LIMITS.get(effective_tier(user), FREE_DAILY_AI_LIMIT)
     if limit is None:
         return True
 
@@ -286,22 +449,23 @@ async def set_user_tz_offset(user_id: str, tz_offset: int):
     await _run(_set_user_tz_offset_sync, user_id, tz_offset)
 
 
-def _get_tasks_needing_reminder_sync(window_start: str, window_end: str) -> list[dict]:
+def _get_tasks_needing_reminder_sync(now_iso: str) -> list[dict]:
+    """Any task due by now and not yet reminded — open-ended so a missed cron
+    tick (Render cold start) still catches up instead of skipping the reminder."""
     return (
         get_client()
         .table("tasks")
         .select("*, users(telegram_id)")
         .eq("remind", True)
         .eq("reminded", False)
-        .gte("due_at", window_start)
-        .lt("due_at", window_end)
+        .lte("due_at", now_iso)
         .execute()
         .data
     )
 
 
-async def get_tasks_needing_reminder(window_start: str, window_end: str) -> list[dict]:
-    return await _run(_get_tasks_needing_reminder_sync, window_start, window_end)
+async def get_tasks_needing_reminder(now_iso: str) -> list[dict]:
+    return await _run(_get_tasks_needing_reminder_sync, now_iso)
 
 
 def _mark_task_reminded_sync(task_id: str):
@@ -445,22 +609,25 @@ async def mark_meal_reminder_sent(user_id: str, meal: str, today_iso: str):
     await _run(_mark_date_field_sync, user_id, field, today_iso)
 
 
-def _get_meetings_needing_reminder_sync(field: str, window_start: str, window_end: str) -> list[dict]:
+def _get_meetings_needing_reminder_sync(field: str, now_iso: str, threshold_iso: str) -> list[dict]:
+    """Meetings that haven't started yet but are due for this reminder (starts_at
+    within the lead window from now) — open lower bound so a missed tick still
+    catches up, upper bound so we never remind about a meeting already past."""
     db = get_client()
     meetings = (
         db.table("meetings")
         .select("*, users(telegram_id)")
         .eq(field, False)
-        .gte("starts_at", window_start)
-        .lt("starts_at", window_end)
+        .gt("starts_at", now_iso)
+        .lte("starts_at", threshold_iso)
         .execute()
         .data
     )
     return meetings
 
 
-async def get_meetings_needing_reminder(field: str, window_start: str, window_end: str) -> list[dict]:
-    return await _run(_get_meetings_needing_reminder_sync, field, window_start, window_end)
+async def get_meetings_needing_reminder(field: str, now_iso: str, threshold_iso: str) -> list[dict]:
+    return await _run(_get_meetings_needing_reminder_sync, field, now_iso, threshold_iso)
 
 
 def _mark_meeting_reminded_sync(meeting_id: str, field: str):

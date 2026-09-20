@@ -12,6 +12,7 @@ from aiohttp_cors import ResourceOptions, setup as cors_setup
 import ai
 import core
 import db
+import payments
 
 ALLOW_DEV_AUTH = os.environ.get("ALLOW_DEV_AUTH", "true").lower() == "true"
 
@@ -71,7 +72,7 @@ async def get_digest(request: web.Request):
     if not user:
         return web.json_response({"error": "unauthorized"}, status=401)
     digest = await db.get_digest(user["id"])
-    tier = user.get("tier") or "free"
+    tier = db.effective_tier(user)
     return web.json_response(
         {
             "user": {
@@ -183,6 +184,39 @@ async def get_section(request: web.Request):
 
     items = await list_fn(user["id"])
     return web.json_response({"items": items})
+
+
+@routes.post("/payments/platega/webhook")
+async def platega_webhook(request: web.Request):
+    if not payments.verify_webhook_auth(
+        request.headers.get("X-MerchantId"), request.headers.get("X-Secret")
+    ):
+        return web.json_response({"error": "forbidden"}, status=403)
+
+    body = await request.json()
+    transaction_id = body.get("id")
+    status = body.get("status")
+    if not transaction_id or status not in ("CONFIRMED", "CANCELED"):
+        return web.json_response({"ok": True})
+
+    order = await db.get_order_by_transaction(transaction_id)
+    if not order or order.get("status") != "pending":
+        return web.json_response({"ok": True})
+
+    if status == "CONFIRMED":
+        await db.mark_order_status(order["id"], "confirmed")
+        await db.grant_tier(order["user_id"], order["tier"], payments.PERIOD_DAYS[order["period"]])
+        telegram_id = (order.get("users") or {}).get("telegram_id")
+        if telegram_id:
+            await core.send_message(
+                telegram_id,
+                f"✅ Оплата получена! Тариф {payments.TIER_LABEL[order['tier']]} "
+                f"активирован ({payments.PERIOD_LABEL[order['period']]}). Спасибо! 🙌",
+            )
+    else:
+        await db.mark_order_status(order["id"], "canceled")
+
+    return web.json_response({"ok": True})
 
 
 @routes.get("/cron/{secret}")

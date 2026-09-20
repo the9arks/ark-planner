@@ -4,9 +4,20 @@ composer and the bot chat behave identically."""
 
 from __future__ import annotations
 
+import os
 from datetime import datetime, timedelta, timezone
 
+import aiohttp
+
 import db
+
+
+async def send_message(telegram_id: int, text: str) -> None:
+    token = os.environ["TELEGRAM_BOT_TOKEN"]
+    url = f"https://api.telegram.org/bot{token}/sendMessage"
+    async with aiohttp.ClientSession() as session:
+        async with session.post(url, json={"chat_id": telegram_id, "text": text}) as resp:
+            await resp.read()
 
 WEEKDAY_RU = {
     "mon": "Пн", "tue": "Вт", "wed": "Ср", "thu": "Чт",

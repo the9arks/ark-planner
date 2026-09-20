@@ -9,6 +9,7 @@ declare global {
         initData: string;
         ready: () => void;
         expand: () => void;
+        openTelegramLink: (url: string) => void;
       };
     };
   }

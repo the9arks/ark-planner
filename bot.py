@@ -22,6 +22,7 @@ from dotenv import load_dotenv
 import ai
 import core
 import db
+import payments
 
 load_dotenv()
 
@@ -31,6 +32,7 @@ dp = Dispatcher()
 INTRO_VIDEO_PATH = os.path.join(os.path.dirname(__file__), "assets", "ark-intro.mp4")
 
 MINIAPP_URL = os.environ.get("MINIAPP_URL", "https://ark-planner-miniapp.onrender.com")
+BOT_USERNAME = os.environ.get("BOT_USERNAME", "ARKPlannerBot")
 SUPPORT_URL = "https://t.me/ark_planner_support"
 PRIVACY_URL = "https://telegra.ph/Politika-konfidencialnosti-ARK-PLANNER-09-19"
 TERMS_URL = "https://telegra.ph/Polzovatelskoe-soglashenie-ARK-PLANNER-09-19-2"
@@ -50,6 +52,8 @@ WELCOME = """\
 
 <b>Free</b> — {free} AI-действий/день · <b>Pro</b> — 199₽/мес, {pro}/день · \
 <b>Ultra</b> — 599₽/мес, безлимит
+
+🎁 Не хочешь платить — приглашай друзей: каждому +5 дней Pro бесплатно (кнопка ниже).
 """.format(free=db.TIER_DAILY_LIMITS["free"], pro=db.TIER_DAILY_LIMITS["pro"])
 
 TARIFFS_IMAGE_PATH = os.path.join(os.path.dirname(__file__), "assets", "tariffs.jpg")
@@ -62,7 +66,7 @@ QUOTA_EXCEEDED_CAPTION = """\
 <b>Pro</b> — 20 запросов в день, 199₽/мес
 <b>Ultra</b> — без ограничений вообще, 599₽/мес
 
-Сменить тариф — «Настройки» в приложении, кнопка ниже.""".format(
+Или бесплатно: пригласи друга — получи 5 дней Pro (кнопка «Пригласить» на /start).""".format(
     limit=db.FREE_DAILY_AI_LIMIT
 )
 
@@ -118,8 +122,9 @@ def _main_keyboard() -> InlineKeyboardMarkup:
             ],
             [
                 InlineKeyboardButton(text="💳 Тарифы", callback_data="info_tariffs"),
-                InlineKeyboardButton(text="🛟 Поддержка", url=SUPPORT_URL),
+                InlineKeyboardButton(text="🎁 Пригласить", callback_data="info_referral"),
             ],
+            [InlineKeyboardButton(text="🛟 Поддержка", url=SUPPORT_URL)],
         ]
     )
 
@@ -132,9 +137,46 @@ async def _get_user(message: Message) -> dict:
     )
 
 
+async def _get_user_from(tg_user) -> dict:
+    return await db.get_or_create_user(
+        telegram_id=tg_user.id, username=tg_user.username, first_name=tg_user.first_name
+    )
+
+
 @dp.message(CommandStart())
 async def on_start(message: Message):
-    await _get_user(message)
+    parts = (message.text or "").split(maxsplit=1)
+    payload = parts[1].strip() if len(parts) > 1 else None
+
+    referrer_tg_id = None
+    if payload and payload.startswith("ref") and payload[3:].isdigit():
+        candidate = int(payload[3:])
+        if candidate != message.from_user.id:
+            referrer_tg_id = candidate
+
+    user = await db.get_or_create_user(
+        telegram_id=message.from_user.id,
+        username=message.from_user.username,
+        first_name=message.from_user.first_name,
+        referrer_telegram_id=referrer_tg_id,
+    )
+
+    if user.get("_is_new") and referrer_tg_id:
+        await message.answer(
+            "🎁 Ты пришёл по приглашению — начислил тебе 3 дня Pro бесплатно!\n"
+            "Другу тоже начислено 5 дней Pro в благодарность 🙌"
+        )
+
+    if payload == "buy":
+        await _send_tariffs(message, TARIFFS_TEXT)
+        return
+    if payload == "paid":
+        await message.answer("Спасибо! Если оплата прошла успешно — тариф обновится в течение минуты.")
+        return
+    if payload == "payfail":
+        await message.answer("Оплата не прошла. Можно попробовать ещё раз через «Тарифы».")
+        return
+
     keyboard = _main_keyboard()
     if os.path.exists(INTRO_VIDEO_PATH):
         await message.answer_animation(
@@ -147,18 +189,51 @@ async def on_start(message: Message):
         await message.answer(WELCOME, parse_mode="HTML", reply_markup=keyboard)
 
 
+@dp.callback_query(F.data == "info_referral")
+async def on_info_referral(callback: CallbackQuery):
+    user = await _get_user_from(callback.from_user)
+    count = await db.count_referrals(user["id"])
+    link = f"https://t.me/{BOT_USERNAME}?start=ref{user['telegram_id']}"
+    text = (
+        "🎁 <b>Приглашай друзей — получай Pro бесплатно</b>\n\n"
+        f"Твоя ссылка:\n{link}\n\n"
+        "• Другу — 3 дня Pro бесплатно при первом запуске\n"
+        "• Тебе — 5 дней Pro за каждого друга\n\n"
+        f"Уже пригласил: {count}"
+    )
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="Поделиться ссылкой",
+                    url=f"https://t.me/share/url?url={link}&text=Веду задачи, траты и еду через ARK PLANNER — попробуй",
+                )
+            ]
+        ]
+    )
+    await callback.message.answer(text, parse_mode="HTML", reply_markup=keyboard)
+    await callback.answer()
+
+
 @dp.callback_query(F.data == "info_profile")
 async def on_info_profile(callback: CallbackQuery):
     await callback.message.answer(PROFILE_INFO_TEXT)
     await callback.answer()
 
 
-async def _send_tariffs(message: Message, caption: str):
-    keyboard = InlineKeyboardMarkup(
+def _tariffs_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="📱 Открыть настройки", web_app=WebAppInfo(url=MINIAPP_URL))]
+            [InlineKeyboardButton(text="💳 Pro — 199₽/мес", callback_data="buy_pro_month")],
+            [InlineKeyboardButton(text="💳 Ultra — 599₽/мес", callback_data="buy_ultra_month")],
+            [InlineKeyboardButton(text="Другие периоды", callback_data="buy_periods")],
+            [InlineKeyboardButton(text="🎁 Пригласить друга вместо оплаты", callback_data="info_referral")],
         ]
     )
+
+
+async def _send_tariffs(message: Message, caption: str):
+    keyboard = _tariffs_keyboard()
     if os.path.exists(TARIFFS_IMAGE_PATH):
         await message.answer_photo(
             FSInputFile(TARIFFS_IMAGE_PATH), caption=caption, parse_mode="HTML", reply_markup=keyboard
@@ -170,6 +245,64 @@ async def _send_tariffs(message: Message, caption: str):
 @dp.callback_query(F.data == "info_tariffs")
 async def on_info_tariffs(callback: CallbackQuery):
     await _send_tariffs(callback.message, TARIFFS_TEXT)
+    await callback.answer()
+
+
+@dp.callback_query(F.data == "buy_periods")
+async def on_buy_periods(callback: CallbackQuery):
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Pro — 199₽/мес", callback_data="buy_pro_month")],
+            [InlineKeyboardButton(text="Pro — 1990₽/год", callback_data="buy_pro_year")],
+            [InlineKeyboardButton(text="Pro — 4990₽ навсегда", callback_data="buy_pro_lifetime")],
+            [InlineKeyboardButton(text="Ultra — 599₽/мес", callback_data="buy_ultra_month")],
+            [InlineKeyboardButton(text="Ultra — 5990₽/год", callback_data="buy_ultra_year")],
+            [InlineKeyboardButton(text="Ultra — 9990₽ навсегда", callback_data="buy_ultra_lifetime")],
+        ]
+    )
+    await callback.message.answer("Выбери тариф:", reply_markup=keyboard)
+    await callback.answer()
+
+
+@dp.callback_query(F.data.startswith("buy_"))
+async def on_buy(callback: CallbackQuery):
+    _, tier, period = callback.data.split("_")
+    if tier not in payments.PRICING or period not in payments.PERIOD_DAYS:
+        await callback.answer()
+        return
+
+    if not payments.is_configured():
+        await callback.message.answer(
+            "Оплата подключается, совсем скоро будет доступна 🙌 Загляни чуть позже — "
+            "или пригласи друга и получи Pro бесплатно (кнопка «Пригласить» на /start)."
+        )
+        await callback.answer()
+        return
+
+    user = await _get_user_from(callback.from_user)
+    amount = payments.PRICING[tier][period]
+    order = await db.create_order(user["id"], tier, period, amount)
+
+    try:
+        result = await payments.create_payment(
+            order["id"], user["telegram_id"], user.get("username"), tier, period
+        )
+    except Exception:
+        logging.exception("create_payment failed")
+        await callback.message.answer("Не получилось создать оплату, попробуй ещё раз чуть позже.")
+        await callback.answer()
+        return
+
+    await db.set_order_transaction(order["id"], result["transactionId"])
+
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[[InlineKeyboardButton(text="Оплатить", url=result["url"])]]
+    )
+    await callback.message.answer(
+        f"💳 {payments.TIER_LABEL[tier]} — {payments.PERIOD_LABEL[period]}, {amount}₽\n"
+        "Ссылка активна 15 минут. После оплаты тариф включится автоматически.",
+        reply_markup=keyboard,
+    )
     await callback.answer()
 
 

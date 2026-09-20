@@ -1,11 +1,9 @@
 from __future__ import annotations
 
-import os
 from datetime import datetime, timedelta, timezone
 
-import aiohttp
-
 import db
+from core import send_message as _send_message
 
 UTC = timezone.utc
 
@@ -16,22 +14,17 @@ def _user_now(user: dict) -> datetime:
     return datetime.now(timezone(timedelta(hours=user.get("tz_offset", 3))))
 
 
-async def _send_message(telegram_id: int, text: str):
-    token = os.environ["TELEGRAM_BOT_TOKEN"]
-    url = f"https://api.telegram.org/bot{token}/sendMessage"
-    async with aiohttp.ClientSession() as session:
-        async with session.post(url, json={"chat_id": telegram_id, "text": text}) as resp:
-            await resp.read()
-
-
 def _parse_hhmm(value: str) -> tuple[int, int]:
     hh, mm = value.split(":")[:2]
     return int(hh), int(mm)
 
 
-def _in_window(now: datetime, hour: int, minute: int, span_minutes: int = 10) -> bool:
+def _due(now: datetime, hour: int, minute: int) -> bool:
+    """Target time has passed today — open-ended (no upper bound) so a missed
+    cron tick (Render free-tier cold start) still catches up later in the day
+    instead of silently skipping the reminder for good."""
     target = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
-    return target <= now < target + timedelta(minutes=span_minutes)
+    return now >= target
 
 
 async def _send_morning_digests(_unused_now: datetime):
@@ -39,7 +32,7 @@ async def _send_morning_digests(_unused_now: datetime):
         now = _user_now(user)
         today_iso = now.date().isoformat()
         hour, minute = _parse_hhmm(user.get("morning_digest_time") or "08:00")
-        if not _in_window(now, hour, minute):
+        if not _due(now, hour, minute):
             continue
         if user.get("last_morning_digest_date") == today_iso:
             continue
@@ -75,7 +68,7 @@ async def _send_meal_reminders(_unused_now: datetime):
             now = _user_now(user)
             today_iso = now.date().isoformat()
             hour, minute = _parse_hhmm(user.get(time_field) or "09:30")
-            if not _in_window(now, hour, minute):
+            if not _due(now, hour, minute):
                 continue
             field = f"last_{meal}_reminder_date"
             if user.get(field) == today_iso:
@@ -95,9 +88,9 @@ async def _send_meeting_reminders(now: datetime):
         ("reminded_2h", 120, "через 2 часа"),
         ("reminded_30m", 30, "через 30 минут"),
     ):
-        window_start = (now + timedelta(minutes=delta_minutes - 5)).isoformat()
-        window_end = (now + timedelta(minutes=delta_minutes + 5)).isoformat()
-        meetings = await db.get_meetings_needing_reminder(field, window_start, window_end)
+        now_iso = now.isoformat()
+        threshold_iso = (now + timedelta(minutes=delta_minutes)).isoformat()
+        meetings = await db.get_meetings_needing_reminder(field, now_iso, threshold_iso)
         for m in meetings:
             telegram_id = (m.get("users") or {}).get("telegram_id")
             if not telegram_id:
@@ -108,9 +101,7 @@ async def _send_meeting_reminders(now: datetime):
 
 
 async def _send_task_reminders(now: datetime):
-    window_start = (now - timedelta(minutes=5)).isoformat()
-    window_end = (now + timedelta(minutes=5)).isoformat()
-    tasks = await db.get_tasks_needing_reminder(window_start, window_end)
+    tasks = await db.get_tasks_needing_reminder(now.isoformat())
     for t in tasks:
         telegram_id = (t.get("users") or {}).get("telegram_id")
         if not telegram_id:
@@ -138,7 +129,7 @@ async def _send_habit_reminders(_unused_now: datetime):
         start_dt = now.replace(hour=start_hour, minute=start_minute, second=0, microsecond=0)
         lead = habit.get("reminder_lead_minutes") or 60
         remind_at = start_dt - timedelta(minutes=lead)
-        if not (remind_at <= now < remind_at + timedelta(minutes=10)):
+        if now < remind_at or now >= start_dt:
             continue
         await _send_message(
             telegram_id,
@@ -149,6 +140,7 @@ async def _send_habit_reminders(_unused_now: datetime):
 
 async def run_tick():
     now = datetime.now(UTC)
+    await db.downgrade_expired_users()
     await _send_morning_digests(now)
     await _send_meal_reminders(now)
     await _send_meeting_reminders(now)

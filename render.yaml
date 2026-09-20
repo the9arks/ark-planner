@@ -22,6 +22,12 @@ services:
         sync: false
       - key: ALLOW_DEV_AUTH
         value: "false"
+      - key: BOT_USERNAME
+        value: ARKPlannerBot
+      - key: PLATEGA_MERCHANT_ID
+        sync: false
+      - key: PLATEGA_SECRET_KEY
+        sync: false
 
   - type: web
     name: ark-planner-miniapp
