@@ -60,13 +60,20 @@ function Card({
   title,
   hint,
   children,
+  onClick,
 }: {
   title: string;
   hint?: string;
   children?: React.ReactNode;
+  onClick?: () => void;
 }) {
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 flex flex-col gap-2 min-h-[110px]">
+    <div
+      onClick={onClick}
+      className={`rounded-2xl border border-white/10 bg-white/[0.03] p-4 flex flex-col gap-2 min-h-[110px]${
+        onClick ? " active:bg-white/[0.06] active:scale-[0.98] transition-transform cursor-pointer" : ""
+      }`}
+    >
       <span className="text-[11px] uppercase tracking-wider text-white/40">
         {title}
       </span>
@@ -79,9 +86,19 @@ function Card({
   );
 }
 
-function CountCard({ title, count, hint }: { title: string; count: number; hint: string }) {
+function CountCard({
+  title,
+  count,
+  hint,
+  onClick,
+}: {
+  title: string;
+  count: number;
+  hint: string;
+  onClick: () => void;
+}) {
   return (
-    <Card title={title}>
+    <Card title={title} onClick={onClick}>
       {count > 0 ? (
         <div className="flex-1 flex items-end">
           <span className="text-3xl font-semibold">{count}</span>
@@ -111,7 +128,7 @@ function pickMotivation(): string {
   return MOTIVATIONAL_PHRASES[Math.floor(Math.random() * MOTIVATIONAL_PHRASES.length)];
 }
 
-function DigestView({ digest }: { digest: Digest | null }) {
+function DigestView({ digest, onNavigate }: { digest: Digest | null; onNavigate: (tab: TabId) => void }) {
   const [greeting] = useState(pickMotivation);
   const today = new Date().toLocaleDateString("ru-RU", {
     weekday: "long",
@@ -136,12 +153,42 @@ function DigestView({ digest }: { digest: Digest | null }) {
       </div>
 
       <div className="grid grid-cols-2 gap-3">
-        <CountCard title="Задачи" count={d?.tasks_today ?? 0} hint="Добавить первую" />
-        <CountCard title="Заметки" count={d?.notes_today ?? 0} hint="Мысль или запись" />
-        <CountCard title="Встречи" count={d?.meetings_today ?? 0} hint="Запланировать" />
-        <CountCard title="Еда" count={d?.food_today ?? 0} hint="Сфоткай еду" />
-        <CountCard title="Привычки" count={d?.rituals_today ?? 0} hint="Отметь сегодня" />
-        <CountCard title="Деньги" count={d?.money_today ?? 0} hint="Настрой бюджет" />
+        <CountCard
+          title="Задачи"
+          count={d?.tasks_today ?? 0}
+          hint="Добавить первую"
+          onClick={() => onNavigate("tasks")}
+        />
+        <CountCard
+          title="Заметки"
+          count={d?.notes_today ?? 0}
+          hint="Мысль или запись"
+          onClick={() => onNavigate("notes")}
+        />
+        <CountCard
+          title="Встречи"
+          count={d?.meetings_today ?? 0}
+          hint="Запланировать"
+          onClick={() => onNavigate("meetings")}
+        />
+        <CountCard
+          title="Еда"
+          count={d?.food_today ?? 0}
+          hint="Сфоткай еду"
+          onClick={() => onNavigate("food")}
+        />
+        <CountCard
+          title="Привычки"
+          count={d?.rituals_today ?? 0}
+          hint="Отметь сегодня"
+          onClick={() => onNavigate("rituals")}
+        />
+        <CountCard
+          title="Деньги"
+          count={d?.money_today ?? 0}
+          hint="Настрой бюджет"
+          onClick={() => onNavigate("money")}
+        />
       </div>
     </div>
   );
@@ -1392,7 +1439,7 @@ export default function App() {
       </header>
 
       <main className="flex-1 overflow-y-auto px-4 py-4 pb-44">
-        {tab === "digest" && <DigestView digest={digest} />}
+        {tab === "digest" && <DigestView digest={digest} onNavigate={setTab} />}
         {tab === "tasks" && <TasksView refreshTick={refreshTick} onChanged={handleSubmitted} />}
         {tab === "notes" && (
           <ListView<Note>

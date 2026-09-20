@@ -2,12 +2,25 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 import secrets
 from datetime import date, datetime, timedelta, timezone
 
 from supabase import Client, create_client
 
 _client: Client | None = None
+
+
+def _parse_iso(dt_str: str) -> datetime:
+    """datetime.fromisoformat, tolerant of Postgres timestamps whose fractional-second
+    digit count isn't exactly 3 or 6 (trailing zeros get stripped) — Python <3.11 rejects
+    those outright, so this pads/truncates before parsing instead of trusting the runtime."""
+    s = dt_str.replace("Z", "+00:00")
+    try:
+        return datetime.fromisoformat(s)
+    except ValueError:
+        s = re.sub(r"\.(\d+)", lambda m: "." + m.group(1)[:6].ljust(6, "0"), s, count=1)
+        return datetime.fromisoformat(s)
 
 TIER_DAILY_LIMITS = {"free": 3, "pro": 10, "ultra": None}
 FREE_DAILY_AI_LIMIT = TIER_DAILY_LIMITS["free"]
@@ -80,7 +93,7 @@ def _grant_referral_bonus_sync(referee_id: str, referrer_id: str) -> None:
     base = now
     if tier in ("pro", "ultra") and referrer.get("tier_expires_at"):
         try:
-            exp_dt = datetime.fromisoformat(referrer["tier_expires_at"].replace("Z", "+00:00"))
+            exp_dt = _parse_iso(referrer["tier_expires_at"])
             if exp_dt > now:
                 base = exp_dt
         except ValueError:
@@ -134,7 +147,7 @@ def effective_tier(user: dict) -> str:
     if not expires_at:
         return tier
     try:
-        exp_dt = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+        exp_dt = _parse_iso(expires_at)
     except ValueError:
         return tier
     return "free" if exp_dt <= datetime.now(timezone.utc) else tier
@@ -150,7 +163,7 @@ def _grant_tier_sync(user_id: str, tier: str, days: int | None) -> dict:
         base = now
         if existing.get("tier") == tier and existing.get("tier_expires_at"):
             try:
-                exp_dt = datetime.fromisoformat(existing["tier_expires_at"].replace("Z", "+00:00"))
+                exp_dt = _parse_iso(existing["tier_expires_at"])
                 if exp_dt > now:
                     base = exp_dt
             except ValueError:
@@ -685,37 +698,46 @@ async def get_ritual_log_timestamps(ritual_id: str) -> list[str]:
     return await _run(_get_ritual_log_timestamps_sync, ritual_id)
 
 
-def _list_sync(table: str, user_id: str, limit: int) -> list[dict]:
-    result = (
-        get_client()
-        .table(table)
-        .select("*")
-        .eq("user_id", user_id)
-        .order("created_at", desc=True)
-        .limit(limit)
-        .execute()
-    )
+RECENT_HISTORY_DAYS = 7  # tasks/notes/meetings/food only keep this much history in the app lists
+
+
+def _recent_cutoff_iso(days: int = RECENT_HISTORY_DAYS) -> str:
+    return (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+
+
+def _list_sync(table: str, user_id: str, limit: int, or_filter: str | None = None) -> list[dict]:
+    q = get_client().table(table).select("*").eq("user_id", user_id)
+    if or_filter:
+        q = q.or_(or_filter)
+    result = q.order("created_at", desc=True).limit(limit).execute()
     return result.data
 
 
 async def list_tasks(user_id: str, limit: int = 50) -> list[dict]:
-    return await _run(_list_sync, "tasks", user_id, limit)
+    # Keep the last 7 days of history, but never hide a task that's still due in the future.
+    cutoff = _recent_cutoff_iso()
+    now = datetime.now(timezone.utc).isoformat()
+    return await _run(_list_sync, "tasks", user_id, limit, f"created_at.gte.{cutoff},due_at.gte.{now}")
 
 
 async def list_notes(user_id: str, limit: int = 50) -> list[dict]:
-    return await _run(_list_sync, "notes", user_id, limit)
+    return await _run(_list_sync, "notes", user_id, limit, f"created_at.gte.{_recent_cutoff_iso()}")
 
 
 async def list_meetings(user_id: str, limit: int = 50) -> list[dict]:
-    return await _run(_list_sync, "meetings", user_id, limit)
+    # Same idea as tasks — future-dated meetings always stay visible.
+    cutoff = _recent_cutoff_iso()
+    now = datetime.now(timezone.utc).isoformat()
+    return await _run(_list_sync, "meetings", user_id, limit, f"created_at.gte.{cutoff},starts_at.gte.{now}")
 
 
 async def list_money(user_id: str, limit: int = 50) -> list[dict]:
+    # No retention window — financial history stays available indefinitely.
     return await _run(_list_sync, "money_entries", user_id, limit)
 
 
 async def list_food(user_id: str, limit: int = 50) -> list[dict]:
-    return await _run(_list_sync, "food_entries", user_id, limit)
+    return await _run(_list_sync, "food_entries", user_id, limit, f"created_at.gte.{_recent_cutoff_iso()}")
 
 
 async def list_rituals(user_id: str, limit: int = 50) -> list[dict]:
