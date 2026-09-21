@@ -1166,6 +1166,8 @@ function TariffPurchase() {
         setError("Оплата подключается, скоро будет доступна 🙌 Загляни чуть позже.");
       } else if (result.error === "invalid_promo") {
         setError("Такого промокода нет — проверь и попробуй ещё раз.");
+      } else if (result.error === "promo_already_used") {
+        setError("Этот промокод уже был использован на твоём аккаунте.");
       } else {
         setError("Не получилось создать оплату, попробуй ещё раз.");
       }

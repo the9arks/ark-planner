@@ -194,30 +194,18 @@ async def downgrade_expired_users() -> None:
 
 
 def _create_order_sync(
-    user_id: str,
-    tier: str,
-    period: str,
-    amount: float,
-    promo_code_id: str | None = None,
-    bonus_days: int | None = None,
+    user_id: str, tier: str, period: str, amount: float, promo_code_id: str | None = None
 ) -> dict:
     row = {"user_id": user_id, "tier": tier, "period": period, "amount": amount, "status": "pending"}
     if promo_code_id:
         row["promo_code_id"] = promo_code_id
-    if bonus_days:
-        row["bonus_days"] = bonus_days
     return get_client().table("orders").insert(row).execute().data[0]
 
 
 async def create_order(
-    user_id: str,
-    tier: str,
-    period: str,
-    amount: float,
-    promo_code_id: str | None = None,
-    bonus_days: int | None = None,
+    user_id: str, tier: str, period: str, amount: float, promo_code_id: str | None = None
 ) -> dict:
-    return await _run(_create_order_sync, user_id, tier, period, amount, promo_code_id, bonus_days)
+    return await _run(_create_order_sync, user_id, tier, period, amount, promo_code_id)
 
 
 def _get_promo_code_sync(code: str) -> dict | None:
@@ -235,6 +223,25 @@ def _get_promo_code_sync(code: str) -> dict | None:
 
 async def get_promo_code(code: str) -> dict | None:
     return await _run(_get_promo_code_sync, code)
+
+
+def _has_used_promo_sync(user_id: str, promo_code_id: str) -> bool:
+    rows = (
+        get_client()
+        .table("orders")
+        .select("id")
+        .eq("user_id", user_id)
+        .eq("promo_code_id", promo_code_id)
+        .in_("status", ["pending", "confirmed"])
+        .limit(1)
+        .execute()
+        .data
+    )
+    return bool(rows)
+
+
+async def has_used_promo(user_id: str, promo_code_id: str) -> bool:
+    return await _run(_has_used_promo_sync, user_id, promo_code_id)
 
 
 def _create_promo_code_sync(code: str, partner_name: str, commission_percent: float) -> dict:

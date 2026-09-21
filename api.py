@@ -275,21 +275,16 @@ async def create_order_api(request: web.Request):
         promo = await db.get_promo_code(promo_input)
         if not promo:
             return web.json_response({"error": "invalid_promo"}, status=400)
+        if await db.has_used_promo(user["id"], promo["id"]):
+            return web.json_response({"error": "promo_already_used"}, status=400)
 
+    # Promo codes are attribution-only — no discount or bonus for the buyer,
+    # just tracking which partner's code led to the sale (for manual payouts).
     amount = payments.PRICING[tier][period]
-    bonus_days = None
-    if promo:
-        if period == "lifetime":
-            amount = round(amount * (1 - payments.PROMO_LIFETIME_DISCOUNT_PERCENT / 100))
-        else:
-            bonus_days = payments.PROMO_BONUS_DAYS.get(period)
-
-    order = await db.create_order(
-        user["id"], tier, period, amount, promo_code_id=promo["id"] if promo else None, bonus_days=bonus_days
-    )
+    order = await db.create_order(user["id"], tier, period, amount, promo_code_id=promo["id"] if promo else None)
     try:
         result = await payments.create_payment(
-            order["id"], user["telegram_id"], user.get("username"), tier, period, amount_override=amount
+            order["id"], user["telegram_id"], user.get("username"), tier, period
         )
     except Exception:
         logging.exception("create_order_api failed")
@@ -496,10 +491,7 @@ async def platega_webhook(request: web.Request):
 
     if status == "CONFIRMED":
         await db.mark_order_status(order["id"], "confirmed")
-        days = payments.PERIOD_DAYS[order["period"]]
-        if days is not None and order.get("bonus_days"):
-            days += order["bonus_days"]
-        await db.grant_tier(order["user_id"], order["tier"], days)
+        await db.grant_tier(order["user_id"], order["tier"], payments.PERIOD_DAYS[order["period"]])
         telegram_id = (order.get("users") or {}).get("telegram_id")
         if telegram_id:
             await core.send_message(

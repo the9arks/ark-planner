@@ -28,12 +28,6 @@ PERIOD_DAYS = {"month": 30, "year": 365, "lifetime": None}
 PERIOD_LABEL = {"month": "1 месяц", "year": "1 год", "lifetime": "навсегда"}
 TIER_LABEL = {"pro": "Pro", "ultra": "Ultra"}
 
-# Partner promo-code bonuses: month/year buyers get extra days added on top of
-# their normal period; lifetime buyers (no "extra time" concept) get a price
-# discount instead, applied to the charged amount at order-creation time.
-PROMO_BONUS_DAYS = {"month": 5, "year": 30}
-PROMO_LIFETIME_DISCOUNT_PERCENT = 10
-
 BOT_USERNAME = os.environ.get("BOT_USERNAME", "ARKPlannerBot")
 
 
@@ -41,16 +35,9 @@ def is_configured() -> bool:
     return bool(os.environ.get("PLATEGA_MERCHANT_ID") and os.environ.get("PLATEGA_SECRET_KEY"))
 
 
-async def create_payment(
-    order_id: str,
-    telegram_id: int,
-    username: str | None,
-    tier: str,
-    period: str,
-    amount_override: int | None = None,
-) -> dict:
+async def create_payment(order_id: str, telegram_id: int, username: str | None, tier: str, period: str) -> dict:
     """Creates a Platega transaction and returns {transactionId, status, url, expiresIn, rate}."""
-    amount = amount_override if amount_override is not None else PRICING[tier][period]
+    amount = PRICING[tier][period]
     headers = {
         "X-MerchantId": os.environ["PLATEGA_MERCHANT_ID"],
         "X-Secret": os.environ["PLATEGA_SECRET_KEY"],
