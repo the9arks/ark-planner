@@ -40,6 +40,8 @@ services:
         sync: false
       - key: REQUIRED_CHANNEL_URL
         sync: false
+      - key: ADMIN_TELEGRAM_ID
+        value: "1027565844"
 
   - type: web
     name: ark-planner-miniapp

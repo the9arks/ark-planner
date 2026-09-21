@@ -146,14 +146,14 @@ export interface OrderResult {
   error?: string;
 }
 
-export async function createOrder(tier: string, period: string): Promise<OrderResult> {
+export async function createOrder(tier: string, period: string, promoCode?: string): Promise<OrderResult> {
   const url = new URL(`${API_URL}/api/orders`);
   const headers = _authHeaders(url);
   headers["Content-Type"] = "application/json";
   const res = await fetch(url.toString(), {
     method: "POST",
     headers,
-    body: JSON.stringify({ tier, period }),
+    body: JSON.stringify({ tier, period, promo_code: promoCode }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {

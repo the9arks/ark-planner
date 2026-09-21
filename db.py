@@ -193,18 +193,91 @@ async def downgrade_expired_users() -> None:
     await _run(_downgrade_expired_users_sync)
 
 
-def _create_order_sync(user_id: str, tier: str, period: str, amount: float) -> dict:
+def _create_order_sync(
+    user_id: str,
+    tier: str,
+    period: str,
+    amount: float,
+    promo_code_id: str | None = None,
+    bonus_days: int | None = None,
+) -> dict:
+    row = {"user_id": user_id, "tier": tier, "period": period, "amount": amount, "status": "pending"}
+    if promo_code_id:
+        row["promo_code_id"] = promo_code_id
+    if bonus_days:
+        row["bonus_days"] = bonus_days
+    return get_client().table("orders").insert(row).execute().data[0]
+
+
+async def create_order(
+    user_id: str,
+    tier: str,
+    period: str,
+    amount: float,
+    promo_code_id: str | None = None,
+    bonus_days: int | None = None,
+) -> dict:
+    return await _run(_create_order_sync, user_id, tier, period, amount, promo_code_id, bonus_days)
+
+
+def _get_promo_code_sync(code: str) -> dict | None:
+    rows = (
+        get_client()
+        .table("promo_codes")
+        .select("*")
+        .ilike("code", code)
+        .eq("active", True)
+        .execute()
+        .data
+    )
+    return rows[0] if rows else None
+
+
+async def get_promo_code(code: str) -> dict | None:
+    return await _run(_get_promo_code_sync, code)
+
+
+def _create_promo_code_sync(code: str, partner_name: str, commission_percent: float) -> dict:
     return (
         get_client()
-        .table("orders")
-        .insert({"user_id": user_id, "tier": tier, "period": period, "amount": amount, "status": "pending"})
+        .table("promo_codes")
+        .insert({"code": code, "partner_name": partner_name, "commission_percent": commission_percent})
         .execute()
         .data[0]
     )
 
 
-async def create_order(user_id: str, tier: str, period: str, amount: float) -> dict:
-    return await _run(_create_order_sync, user_id, tier, period, amount)
+async def create_promo_code(code: str, partner_name: str, commission_percent: float = 35) -> dict:
+    return await _run(_create_promo_code_sync, code, partner_name, commission_percent)
+
+
+def _get_promo_stats_sync() -> list[dict]:
+    codes = get_client().table("promo_codes").select("*").order("created_at", desc=True).execute().data
+    orders = (
+        get_client()
+        .table("orders")
+        .select("promo_code_id, amount")
+        .eq("status", "confirmed")
+        .not_.is_("promo_code_id", "null")
+        .execute()
+        .data
+    )
+    by_code: dict[str, dict] = {}
+    for o in orders:
+        pid = o["promo_code_id"]
+        agg = by_code.setdefault(pid, {"count": 0, "revenue": 0.0})
+        agg["count"] += 1
+        agg["revenue"] += float(o["amount"] or 0)
+    for c in codes:
+        agg = by_code.get(c["id"], {"count": 0, "revenue": 0.0})
+        c["sales_count"] = agg["count"]
+        c["revenue"] = agg["revenue"]
+        c["payout"] = round(agg["revenue"] * float(c["commission_percent"]) / 100, 2)
+    return codes
+
+
+async def get_promo_stats() -> list[dict]:
+    return await _run(_get_promo_stats_sync)
 
 
 def _set_order_transaction_sync(order_id: str, transaction_id: str) -> None:

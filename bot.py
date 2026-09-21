@@ -35,6 +35,7 @@ MINIAPP_URL = os.environ.get("MINIAPP_URL", "https://ark-planner-miniapp.onrende
 BOT_USERNAME = os.environ.get("BOT_USERNAME", "ARKPlannerBot")
 QUICK_CAPTURE_BASE = os.environ.get("QUICK_CAPTURE_BASE", "https://ark-planner-backend.onrender.com")
 SUPPORT_URL = "https://t.me/ark_planner_support"
+ADMIN_TELEGRAM_ID = int(os.environ.get("ADMIN_TELEGRAM_ID", "0") or "0")
 PRIVACY_URL = "https://telegra.ph/Politika-konfidencialnosti-ARK-PLANNER-09-19"
 TERMS_URL = "https://telegra.ph/Polzovatelskoe-soglashenie-ARK-PLANNER-09-19-2"
 
@@ -385,6 +386,79 @@ async def on_support(message: Message):
         "Если что-то не работает, есть вопрос по подписке или хочешь удалить данные — пиши:",
         reply_markup=keyboard,
     )
+
+
+PROMO_CODE_RE = re.compile(r"^[A-Z0-9]{4,6}$")
+
+
+@dp.message(Command("addpromo"))
+async def on_add_promo(message: Message):
+    if message.from_user.id != ADMIN_TELEGRAM_ID:
+        return
+
+    parts = (message.text or "").split(maxsplit=1)
+    if len(parts) < 2:
+        await message.answer(
+            "Формат: <code>/addpromo КОД Имя партнёра [ставка%]</code>\n"
+            "Код — 4-6 символов, английские буквы и цифры.\n"
+            "Пример: <code>/addpromo VIKA35 Виктория 35</code>",
+            parse_mode="HTML",
+        )
+        return
+
+    tokens = parts[1].split()
+    code = tokens[0].upper()
+    rest = tokens[1:]
+
+    commission = 35.0
+    if rest and re.fullmatch(r"\d+(\.\d+)?", rest[-1]):
+        commission = float(rest[-1])
+        rest = rest[:-1]
+
+    partner_name = " ".join(rest).strip()
+    if not PROMO_CODE_RE.match(code):
+        await message.answer("Код должен быть 4-6 символов, только английские буквы и цифры.")
+        return
+    if not partner_name:
+        await message.answer("Укажи имя партнёра: <code>/addpromo КОД Имя партнёра</code>", parse_mode="HTML")
+        return
+
+    try:
+        await db.create_promo_code(code, partner_name, commission)
+    except Exception:
+        await message.answer(f"Не получилось создать — возможно, код «{code}» уже занят.")
+        return
+
+    await message.answer(
+        f"✅ Промокод <code>{code}</code> → {partner_name} (ставка {commission:g}%)\n\n"
+        f"Месяц/год: +5 дней / +1 месяц бонусом покупателю.\n"
+        f"Навсегда: -10% к цене покупателю.",
+        parse_mode="HTML",
+    )
+
+
+@dp.message(Command("promostats"))
+async def on_promo_stats(message: Message):
+    if message.from_user.id != ADMIN_TELEGRAM_ID:
+        return
+
+    codes = await db.get_promo_stats()
+    if not codes:
+        await message.answer("Промокодов пока нет — добавь через /addpromo.")
+        return
+
+    lines = ["💼 <b>Статистика по промокодам</b>\n"]
+    total_payout = 0.0
+    for c in codes:
+        status = "" if c["active"] else " (выключен)"
+        lines.append(
+            f"<code>{c['code']}</code> — {c['partner_name']}{status}\n"
+            f"  ставка {float(c['commission_percent']):g}% · {c['sales_count']} продаж · "
+            f"выручка {c['revenue']:.0f}₽ · к выплате {c['payout']:.0f}₽"
+        )
+        total_payout += c["payout"]
+    lines.append(f"\nИтого к выплате: <b>{total_payout:.0f}₽</b>")
+    await message.answer("\n".join(lines), parse_mode="HTML")
 
 
 @dp.message(F.text == "/summary")

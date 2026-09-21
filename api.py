@@ -263,17 +263,33 @@ async def create_order_api(request: web.Request):
     body = await request.json()
     tier = body.get("tier")
     period = body.get("period")
+    promo_input = (body.get("promo_code") or "").strip()
     if tier not in payments.PRICING or period not in payments.PERIOD_DAYS:
         return web.json_response({"error": "invalid_tariff"}, status=400)
 
     if not payments.is_configured():
         return web.json_response({"error": "not_configured"}, status=503)
 
+    promo = None
+    if promo_input:
+        promo = await db.get_promo_code(promo_input)
+        if not promo:
+            return web.json_response({"error": "invalid_promo"}, status=400)
+
     amount = payments.PRICING[tier][period]
-    order = await db.create_order(user["id"], tier, period, amount)
+    bonus_days = None
+    if promo:
+        if period == "lifetime":
+            amount = round(amount * (1 - payments.PROMO_LIFETIME_DISCOUNT_PERCENT / 100))
+        else:
+            bonus_days = payments.PROMO_BONUS_DAYS.get(period)
+
+    order = await db.create_order(
+        user["id"], tier, period, amount, promo_code_id=promo["id"] if promo else None, bonus_days=bonus_days
+    )
     try:
         result = await payments.create_payment(
-            order["id"], user["telegram_id"], user.get("username"), tier, period
+            order["id"], user["telegram_id"], user.get("username"), tier, period, amount_override=amount
         )
     except Exception:
         logging.exception("create_order_api failed")
@@ -480,7 +496,10 @@ async def platega_webhook(request: web.Request):
 
     if status == "CONFIRMED":
         await db.mark_order_status(order["id"], "confirmed")
-        await db.grant_tier(order["user_id"], order["tier"], payments.PERIOD_DAYS[order["period"]])
+        days = payments.PERIOD_DAYS[order["period"]]
+        if days is not None and order.get("bonus_days"):
+            days += order["bonus_days"]
+        await db.grant_tier(order["user_id"], order["tier"], days)
         telegram_id = (order.get("users") or {}).get("telegram_id")
         if telegram_id:
             await core.send_message(

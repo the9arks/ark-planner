@@ -1151,17 +1151,21 @@ function openExternal(url: string) {
 function TariffPurchase() {
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [showPromo, setShowPromo] = useState(false);
+  const [promoCode, setPromoCode] = useState("");
 
   async function buy(tier: string, period: string) {
     const key = `${tier}_${period}`;
     setBusyKey(key);
     setError(null);
     try {
-      const result = await createOrder(tier, period);
+      const result = await createOrder(tier, period, promoCode.trim() || undefined);
       if (result.url) {
         openExternal(result.url);
       } else if (result.error === "not_configured") {
         setError("Оплата подключается, скоро будет доступна 🙌 Загляни чуть позже.");
+      } else if (result.error === "invalid_promo") {
+        setError("Такого промокода нет — проверь и попробуй ещё раз.");
       } else {
         setError("Не получилось создать оплату, попробуй ещё раз.");
       }
@@ -1219,6 +1223,20 @@ function TariffPurchase() {
           );
         })}
       </div>
+      {showPromo ? (
+        <input
+          type="text"
+          value={promoCode}
+          onChange={(e) => setPromoCode(e.target.value.toUpperCase())}
+          placeholder="Промокод"
+          maxLength={6}
+          className="rounded-lg bg-white/[0.06] border border-white/10 px-3 py-2 text-xs text-center tracking-widest uppercase placeholder:normal-case placeholder:tracking-normal"
+        />
+      ) : (
+        <button onClick={() => setShowPromo(true)} className="text-white/40 text-xs underline underline-offset-2">
+          Есть промокод?
+        </button>
+      )}
       {error && <div className="text-white/50 text-xs">{error}</div>}
     </div>
   );
