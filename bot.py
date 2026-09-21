@@ -431,7 +431,7 @@ async def on_add_promo(message: Message):
 
     await message.answer(
         f"✅ Промокод <code>{code}</code> → {partner_name} (ставка {commission:g}%)\n\n"
-        "Цена для покупателя не меняется — код только помечает, через кого пришла продажа. "
+        "Бонус покупателю: месяц +5 дней, год +1 месяц, навсегда -10% к цене.\n"
         "Один человек может применить код только один раз.\n\n"
         "Статистика: /promostats",
         parse_mode="HTML",

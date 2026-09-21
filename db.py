@@ -194,18 +194,30 @@ async def downgrade_expired_users() -> None:
 
 
 def _create_order_sync(
-    user_id: str, tier: str, period: str, amount: float, promo_code_id: str | None = None
+    user_id: str,
+    tier: str,
+    period: str,
+    amount: float,
+    promo_code_id: str | None = None,
+    bonus_days: int | None = None,
 ) -> dict:
     row = {"user_id": user_id, "tier": tier, "period": period, "amount": amount, "status": "pending"}
     if promo_code_id:
         row["promo_code_id"] = promo_code_id
+    if bonus_days:
+        row["bonus_days"] = bonus_days
     return get_client().table("orders").insert(row).execute().data[0]
 
 
 async def create_order(
-    user_id: str, tier: str, period: str, amount: float, promo_code_id: str | None = None
+    user_id: str,
+    tier: str,
+    period: str,
+    amount: float,
+    promo_code_id: str | None = None,
+    bonus_days: int | None = None,
 ) -> dict:
-    return await _run(_create_order_sync, user_id, tier, period, amount, promo_code_id)
+    return await _run(_create_order_sync, user_id, tier, period, amount, promo_code_id, bonus_days)
 
 
 def _get_promo_code_sync(code: str) -> dict | None:
