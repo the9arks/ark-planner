@@ -751,6 +751,8 @@ function MeetingCard({
     try {
       await cancelMeeting(meeting.id);
       onChanged();
+      setBusy(false);
+      setExpanded(false);
     } catch {
       setError("Не получилось отменить, попробуй ещё раз");
       setBusy(false);
@@ -764,6 +766,9 @@ function MeetingCard({
     try {
       await rescheduleMeeting(meeting.id, new Date(newTime).toISOString());
       onChanged();
+      setBusy(false);
+      setRescheduling(false);
+      setExpanded(false);
     } catch {
       setError("Не получилось перенести, попробуй ещё раз");
       setBusy(false);
