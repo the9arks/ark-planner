@@ -68,6 +68,8 @@ export interface Digest {
     dinner_reminder_time: string;
     tz_offset: number;
     money_goal_amount: number | null;
+    tier_expires_at: string | null;
+    had_subscription: boolean;
   };
   digest: {
     tasks_today: number;

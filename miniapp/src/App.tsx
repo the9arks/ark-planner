@@ -1378,6 +1378,47 @@ function TrialOffer({ onAccept, onSkip }: { onAccept: () => void; onSkip: () => 
   );
 }
 
+function LastDayModal({ onExtend, onDismiss }: { onExtend: () => void; onDismiss: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 ark-gradient-bg flex flex-col items-center justify-center max-w-[480px] mx-auto px-6 text-center">
+      <div className="text-5xl mb-5">⏰</div>
+      <div className="text-2xl font-semibold">Последний день подписки</div>
+      <div className="text-white/50 text-sm mt-3 leading-relaxed max-w-[320px]">
+        Завтра тариф вернётся на Free. Продли сейчас, чтобы не потерять Pro-функции.
+      </div>
+      <button
+        onClick={onExtend}
+        className="w-full max-w-[320px] rounded-xl bg-white text-black text-sm font-medium py-3 mt-8"
+      >
+        Продлить подписку
+      </button>
+      <button onClick={onDismiss} className="text-white/40 text-sm mt-4">
+        Напомнить позже
+      </button>
+    </div>
+  );
+}
+
+function SubscriptionEndedModal({ onDismiss }: { onDismiss: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 ark-gradient-bg flex flex-col items-center overflow-y-auto max-w-[480px] mx-auto px-6 py-10 text-center">
+      <div className="flex-1 flex flex-col items-center justify-center min-h-[40vh]">
+        <div className="text-5xl mb-5">⏳</div>
+        <div className="text-2xl font-semibold">Подписка закончилась</div>
+        <div className="text-white/50 text-sm mt-3 leading-relaxed max-w-[320px]">
+          Pro-функции приостановлены. Продли подписку — или продолжай пользоваться бесплатным тарифом.
+        </div>
+      </div>
+      <div className="w-full max-w-[340px]">
+        <TariffPurchase />
+      </div>
+      <button onClick={onDismiss} className="text-white/40 text-xs mt-6 underline underline-offset-2">
+        Остаться на бесплатной
+      </button>
+    </div>
+  );
+}
+
 function Onboarding({ onDone }: { onDone: () => void }) {
   const [step, setStep] = useState(0);
   const slide = ONBOARDING_SLIDES[step];
@@ -1456,8 +1497,18 @@ export default function App() {
   const [digest, setDigest] = useState<Digest | null>(null);
   const [refreshTick, setRefreshTick] = useState(0);
   const [subStatus, setSubStatus] = useState<SubscriptionStatus | null>(null);
+  const [dismissedEnded, setDismissedEnded] = useState(false);
+  const [dismissedLastDay, setDismissedLastDay] = useState(false);
   const activeIndex = TABS.findIndex((t) => t.id === tab);
   const gated = !!subStatus?.required && !subStatus.subscribed;
+
+  const tier = digest?.user.tier ?? "free";
+  const showEnded = tier === "free" && !!digest?.user.had_subscription && !dismissedEnded;
+  const hoursLeft = digest?.user.tier_expires_at
+    ? (new Date(digest.user.tier_expires_at).getTime() - Date.now()) / 3_600_000
+    : null;
+  const showLastDay =
+    tier !== "free" && hoursLeft !== null && hoursLeft > 0 && hoursLeft <= 24 && !dismissedLastDay;
 
   useEffect(() => {
     getDigest().then(setDigest).catch(() => setDigest(null));
@@ -1497,6 +1548,18 @@ export default function App() {
       )}
       {!showOnboarding && !gated && showTrialOffer && (
         <TrialOffer onAccept={acceptTrial} onSkip={() => setShowTrialOffer(false)} />
+      )}
+      {!showOnboarding && !gated && !showTrialOffer && showEnded && (
+        <SubscriptionEndedModal onDismiss={() => setDismissedEnded(true)} />
+      )}
+      {!showOnboarding && !gated && !showTrialOffer && !showEnded && showLastDay && (
+        <LastDayModal
+          onExtend={() => {
+            setDismissedLastDay(true);
+            setTab("settings");
+          }}
+          onDismiss={() => setDismissedLastDay(true)}
+        />
       )}
       {trialToast && (
         <div className="fixed top-3 left-1/2 -translate-x-1/2 z-40 max-w-[90%] rounded-xl border border-white/15 bg-[#16161a]/95 backdrop-blur px-4 py-2.5 text-sm text-center shadow-lg">

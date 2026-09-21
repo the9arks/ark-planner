@@ -242,6 +242,23 @@ async def mark_order_status(order_id: str, status: str) -> None:
     await _run(_mark_order_status_sync, order_id, status)
 
 
+def _had_paid_order_sync(user_id: str) -> bool:
+    rows = (
+        get_client()
+        .table("orders")
+        .select("id")
+        .eq("user_id", user_id)
+        .eq("status", "confirmed")
+        .limit(1)
+        .execute()
+    )
+    return bool(rows.data)
+
+
+async def had_paid_order(user_id: str) -> bool:
+    return await _run(_had_paid_order_sync, user_id)
+
+
 def _get_user_by_quick_secret_sync(secret: str) -> dict | None:
     rows = get_client().table("users").select("*").eq("quick_secret", secret).execute().data
     return rows[0] if rows else None

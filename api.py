@@ -75,6 +75,7 @@ async def get_digest(request: web.Request):
         return web.json_response({"error": "unauthorized"}, status=401)
     digest = await db.get_digest(user["id"])
     tier = db.effective_tier(user)
+    had_subscription = bool(user.get("trial_granted_at")) or await db.had_paid_order(user["id"])
     return web.json_response(
         {
             "user": {
@@ -86,6 +87,8 @@ async def get_digest(request: web.Request):
                 "dinner_reminder_time": user.get("dinner_reminder_time"),
                 "tz_offset": user.get("tz_offset", 3),
                 "money_goal_amount": user.get("money_goal_amount"),
+                "tier_expires_at": user.get("tier_expires_at"),
+                "had_subscription": had_subscription,
             },
             "digest": digest,
         }
