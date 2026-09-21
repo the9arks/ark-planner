@@ -36,6 +36,10 @@ services:
         sync: false
       - key: PLATEGA_SECRET_KEY
         sync: false
+      - key: REQUIRED_CHANNEL_ID
+        sync: false
+      - key: REQUIRED_CHANNEL_URL
+        sync: false
 
   - type: web
     name: ark-planner-miniapp

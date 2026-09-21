@@ -160,6 +160,20 @@ export async function createOrder(tier: string, period: string): Promise<OrderRe
   return data;
 }
 
+export interface SubscriptionStatus {
+  required: boolean;
+  subscribed: boolean;
+  channel_url: string | null;
+}
+
+export function getSubscriptionStatus() {
+  return apiGet<SubscriptionStatus>("/api/subscription/status");
+}
+
+export function recheckSubscription() {
+  return apiPost<{ subscribed: boolean }>("/api/subscription/recheck", {});
+}
+
 export async function claimTrial(): Promise<boolean> {
   try {
     const res = await apiPost<{ granted: boolean }>("/api/trial/claim", {});

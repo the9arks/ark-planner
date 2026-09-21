@@ -326,11 +326,37 @@ async def set_timezone_setting(request: web.Request):
     return web.json_response({"ok": True})
 
 
+@routes.get("/api/subscription/status")
+async def subscription_status(request: web.Request):
+    user = await _authenticate(request)
+    if not user:
+        return web.json_response({"error": "unauthorized"}, status=401)
+
+    required = core.subscription_gate_enabled()
+    subscribed = await core.is_subscribed(user["telegram_id"]) if required else True
+    return web.json_response(
+        {"required": required, "subscribed": subscribed, "channel_url": core.REQUIRED_CHANNEL_URL}
+    )
+
+
+@routes.post("/api/subscription/recheck")
+async def subscription_recheck(request: web.Request):
+    user = await _authenticate(request)
+    if not user:
+        return web.json_response({"error": "unauthorized"}, status=401)
+
+    core.clear_subscription_cache(user["telegram_id"])
+    subscribed = await core.is_subscribed(user["telegram_id"])
+    return web.json_response({"subscribed": subscribed})
+
+
 @routes.post("/api/entries")
 async def create_entry(request: web.Request):
     user = await _authenticate(request)
     if not user:
         return web.json_response({"error": "unauthorized"}, status=401)
+    if not await core.is_subscribed(user["telegram_id"]):
+        return web.json_response({"error": "not_subscribed"}, status=403)
 
     body = await request.json()
     text = (body.get("text") or "").strip()
@@ -368,6 +394,8 @@ async def shortcut_entry(request: web.Request):
     user = await db.get_user_by_quick_secret(secret)
     if not user:
         return web.json_response({"error": "unauthorized"}, status=401)
+    if not await core.is_subscribed(user["telegram_id"]):
+        return web.json_response({"error": "not_subscribed"}, status=403)
 
     body = await request.json()
     text = (body.get("text") or "").strip()

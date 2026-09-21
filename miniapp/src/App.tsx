@@ -9,6 +9,8 @@ import {
   getFoodSummary,
   getMoneySummary,
   getSection,
+  getSubscriptionStatus,
+  recheckSubscription,
   relapseHabit,
   rescheduleMeeting,
   setFoodGoal,
@@ -19,6 +21,7 @@ import {
   type Digest,
   type FoodSummary,
   type MoneySummary,
+  type SubscriptionStatus,
   type Tier,
 } from "./api";
 
@@ -276,6 +279,9 @@ function ComposerBar({ onSubmitted }: { onSubmitted: () => void }) {
       onSubmitted();
     } else if (result.error === "quota_exceeded") {
       setToast("Лимит AI-действий на сегодня исчерпан — загляни в «Настройки» за тарифом");
+    } else if (result.error === "not_subscribed") {
+      setToast("Нужна подписка на канал ARK PLANNER — перезайди в приложение");
+      onSubmitted();
     } else if (result.error === "service_unavailable") {
       setToast("⚠️ ARK временно недоступен (технические работы) — попробуй через несколько минут");
     } else if (result.error === "network_error") {
@@ -1290,6 +1296,61 @@ const ONBOARDING_SLIDES = [
   },
 ];
 
+function SubscriptionGate({ channelUrl, onVerified }: { channelUrl: string | null; onVerified: () => void }) {
+  const [checking, setChecking] = useState(false);
+  const [denied, setDenied] = useState(false);
+
+  function openChannel() {
+    if (channelUrl) openExternal(channelUrl);
+  }
+
+  async function check() {
+    setChecking(true);
+    setDenied(false);
+    try {
+      const res = await recheckSubscription();
+      if (res.subscribed) {
+        onVerified();
+      } else {
+        setDenied(true);
+      }
+    } catch {
+      setDenied(true);
+    } finally {
+      setChecking(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 ark-gradient-bg flex flex-col items-center justify-center max-w-[480px] mx-auto px-6 text-center">
+      <ArkMark size={48} />
+      <div className="text-2xl font-semibold mt-5">Доступ по подписке</div>
+      <div className="text-white/50 text-sm mt-3 leading-relaxed max-w-[320px]">
+        Чтобы пользоваться ARK PLANNER, подпишись на наш Telegram-канал — там фичи, новости и бонусы
+        для подписчиков.
+      </div>
+      <button
+        onClick={openChannel}
+        className="w-full max-w-[320px] rounded-xl bg-white text-black text-sm font-medium py-3 mt-8"
+      >
+        📢 Подписаться на канал
+      </button>
+      <button
+        disabled={checking}
+        onClick={check}
+        className="w-full max-w-[320px] rounded-xl border border-white/15 text-white text-sm font-medium py-3 mt-3 disabled:opacity-50"
+      >
+        {checking ? "Проверяю…" : "✅ Я подписался, проверить"}
+      </button>
+      {denied && (
+        <div className="text-white/40 text-xs mt-4 max-w-[280px]">
+          Пока не вижу подписки — подожди пару секунд после вступления в канал и попробуй ещё раз.
+        </div>
+      )}
+    </div>
+  );
+}
+
 function TrialOffer({ onAccept, onSkip }: { onAccept: () => void; onSkip: () => void }) {
   const [claiming, setClaiming] = useState(false);
 
@@ -1394,10 +1455,18 @@ export default function App() {
   const [tab, setTab] = useState<TabId>("digest");
   const [digest, setDigest] = useState<Digest | null>(null);
   const [refreshTick, setRefreshTick] = useState(0);
+  const [subStatus, setSubStatus] = useState<SubscriptionStatus | null>(null);
   const activeIndex = TABS.findIndex((t) => t.id === tab);
+  const gated = !!subStatus?.required && !subStatus.subscribed;
 
   useEffect(() => {
     getDigest().then(setDigest).catch(() => setDigest(null));
+  }, [refreshTick]);
+
+  useEffect(() => {
+    getSubscriptionStatus()
+      .then(setSubStatus)
+      .catch(() => setSubStatus({ required: false, subscribed: true, channel_url: null }));
   }, [refreshTick]);
 
   // Telegram keeps the Mini App's WebView alive in the background, so reopening
@@ -1420,7 +1489,13 @@ export default function App() {
   return (
     <div className="min-h-screen max-w-[480px] mx-auto flex flex-col relative">
       {showOnboarding && <Onboarding onDone={finishOnboarding} />}
-      {!showOnboarding && showTrialOffer && (
+      {!showOnboarding && gated && (
+        <SubscriptionGate
+          channelUrl={subStatus!.channel_url}
+          onVerified={() => setSubStatus((s) => (s ? { ...s, subscribed: true } : s))}
+        />
+      )}
+      {!showOnboarding && !gated && showTrialOffer && (
         <TrialOffer onAccept={acceptTrial} onSkip={() => setShowTrialOffer(false)} />
       )}
       {trialToast && (

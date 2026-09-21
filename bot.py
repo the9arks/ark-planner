@@ -147,6 +147,40 @@ async def _get_user_from(tg_user) -> dict:
     )
 
 
+SUBSCRIBE_TEXT = (
+    "Чтобы пользоваться ARK PLANNER, подпишись на наш канал 👇\n\n"
+    "Там фичи, новости и бонусы для подписчиков."
+)
+
+
+def _subscribe_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="📢 Подписаться на канал", url=core.REQUIRED_CHANNEL_URL)],
+            [InlineKeyboardButton(text="✅ Я подписался, проверить", callback_data="check_subscription")],
+        ]
+    )
+
+
+async def _require_subscription(message: Message, telegram_id: int) -> bool:
+    if await core.is_subscribed(telegram_id):
+        return True
+    await message.answer(SUBSCRIBE_TEXT, reply_markup=_subscribe_keyboard())
+    return False
+
+
+@dp.callback_query(F.data == "check_subscription")
+async def on_check_subscription(callback: CallbackQuery):
+    core.clear_subscription_cache(callback.from_user.id)
+    if await core.is_subscribed(callback.from_user.id):
+        await callback.message.answer(
+            "✅ Подписка подтверждена! Теперь можно пользоваться ARK PLANNER — просто напиши, что нужно записать."
+        )
+        await callback.answer()
+    else:
+        await callback.answer("Не вижу подписки — попробуй ещё раз через пару секунд.", show_alert=True)
+
+
 @dp.message(CommandStart())
 async def on_start(message: Message):
     parts = (message.text or "").split(maxsplit=1)
@@ -410,6 +444,8 @@ async def on_voice(message: Message):
 
 @dp.message(F.photo)
 async def on_photo(message: Message):
+    if not await _require_subscription(message, message.from_user.id):
+        return
     user = await _get_user(message)
     if not await db.check_and_increment_quota(user):
         await _send_tariffs(message, QUOTA_EXCEEDED_CAPTION)
@@ -443,6 +479,8 @@ async def on_photo(message: Message):
 
 @dp.message(F.text)
 async def on_text(message: Message):
+    if not await _require_subscription(message, message.from_user.id):
+        return
     user = await _get_user(message)
     if not await db.check_and_increment_quota(user):
         await _send_tariffs(message, QUOTA_EXCEEDED_CAPTION)

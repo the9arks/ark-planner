@@ -5,6 +5,7 @@ composer and the bot chat behave identically."""
 from __future__ import annotations
 
 import os
+import time
 from datetime import datetime, timedelta, timezone
 
 import aiohttp
@@ -18,6 +19,56 @@ async def send_message(telegram_id: int, text: str) -> None:
     async with aiohttp.ClientSession() as session:
         async with session.post(url, json={"chat_id": telegram_id, "text": text}) as resp:
             await resp.read()
+
+
+# Gates real usage (bot messages + Mini App) behind membership in a Telegram channel.
+# Both REQUIRED_CHANNEL_ID (whatever getChatMember accepts — "@username" or numeric
+# chat id) and REQUIRED_CHANNEL_URL (the https://t.me/... join link shown to users)
+# must be set for the gate to turn on; unset, everyone is treated as subscribed.
+REQUIRED_CHANNEL_ID = os.environ.get("REQUIRED_CHANNEL_ID")
+REQUIRED_CHANNEL_URL = os.environ.get("REQUIRED_CHANNEL_URL")
+
+_SUBSCRIPTION_CACHE_TTL = 600  # seconds — avoids hammering Telegram's API on every action
+_subscription_cache: dict[int, tuple[float, bool]] = {}
+
+
+def subscription_gate_enabled() -> bool:
+    return bool(REQUIRED_CHANNEL_ID and REQUIRED_CHANNEL_URL)
+
+
+async def is_subscribed(telegram_id: int) -> bool:
+    """Checks channel membership via a raw Bot API call (kept separate from aiogram's
+    Bot instance so api.py can use it too). Fails OPEN on any error — wrong channel id,
+    bot not an admin yet, Telegram hiccup — because a misconfigured gate breaking the
+    whole product for every user is far worse than the gate briefly doing nothing."""
+    if not subscription_gate_enabled():
+        return True
+
+    cached = _subscription_cache.get(telegram_id)
+    if cached and time.monotonic() - cached[0] < _SUBSCRIPTION_CACHE_TTL:
+        return cached[1]
+
+    token = os.environ["TELEGRAM_BOT_TOKEN"]
+    url = f"https://api.telegram.org/bot{token}/getChatMember"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                url, params={"chat_id": REQUIRED_CHANNEL_ID, "user_id": telegram_id}
+            ) as resp:
+                data = await resp.json()
+    except Exception:
+        return True
+
+    if not data.get("ok"):
+        return True
+
+    subscribed = data["result"].get("status") not in ("left", "kicked")
+    _subscription_cache[telegram_id] = (time.monotonic(), subscribed)
+    return subscribed
+
+
+def clear_subscription_cache(telegram_id: int) -> None:
+    _subscription_cache.pop(telegram_id, None)
 
 WEEKDAY_RU = {
     "mon": "Пн", "tue": "Вт", "wed": "Ср", "thu": "Чт",
