@@ -600,6 +600,20 @@ async def _run_local_dev(bot: Bot):
     await asyncio.gather(dp.start_polling(bot), asyncio.Event().wait())
 
 
+async def _reminder_loop():
+    """Runs the digest/meal/meeting/habit/task reminder tick in-process every
+    few minutes, so delivery doesn't depend on an external cron pinger hitting
+    /cron/<secret> (Render's free tier has no native cron service)."""
+    import reminders
+
+    while True:
+        try:
+            await reminders.run_tick()
+        except Exception:
+            logging.exception("reminder tick failed")
+        await asyncio.sleep(180)
+
+
 async def _run_webhook(bot: Bot, external_url: str):
     """Single aiohttp app serving the Telegram webhook + the Mini App API —
     one process behind a reverse proxy (nginx on a VPS, or Render's single
@@ -618,6 +632,7 @@ async def _run_webhook(bot: Bot, external_url: str):
             allowed_updates=dp.resolve_used_update_types(),
         )
         logging.info(f"Webhook set to {external_url}{WEBHOOK_PATH}")
+        asyncio.create_task(_reminder_loop())
 
     app.on_startup.append(_on_startup)
 
