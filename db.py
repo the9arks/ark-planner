@@ -913,6 +913,22 @@ async def has_food_entry_since(user_id: str, since_iso: str) -> bool:
     return await _run(_has_food_entry_since_sync, user_id, since_iso)
 
 
+def _has_money_entry_since_sync(user_id: str, since_iso: str) -> bool:
+    result = (
+        get_client()
+        .table("money_entries")
+        .select("id", count="exact")
+        .eq("user_id", user_id)
+        .gte("created_at", since_iso)
+        .execute()
+    )
+    return (result.count or 0) > 0
+
+
+async def has_money_entry_since(user_id: str, since_iso: str) -> bool:
+    return await _run(_has_money_entry_since_sync, user_id, since_iso)
+
+
 def _mark_date_field_sync(user_id: str, field: str, value: str):
     get_client().table("users").update({field: value}).eq("id", user_id).execute()
 
@@ -924,6 +940,10 @@ async def mark_morning_digest_sent(user_id: str, today_iso: str):
 async def mark_meal_reminder_sent(user_id: str, meal: str, today_iso: str):
     field = f"last_{meal}_reminder_date"
     await _run(_mark_date_field_sync, user_id, field, today_iso)
+
+
+async def mark_money_reminder_sent(user_id: str, today_iso: str):
+    await _run(_mark_date_field_sync, user_id, "last_money_reminder_date", today_iso)
 
 
 def _get_meetings_needing_reminder_sync(field: str, now_iso: str, threshold_iso: str) -> list[dict]:

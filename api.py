@@ -85,6 +85,7 @@ async def get_digest(request: web.Request):
                 "breakfast_reminder_time": user.get("breakfast_reminder_time"),
                 "lunch_reminder_time": user.get("lunch_reminder_time"),
                 "dinner_reminder_time": user.get("dinner_reminder_time"),
+                "money_reminder_time": user.get("money_reminder_time"),
                 "tz_offset": user.get("tz_offset", 3),
                 "money_goal_amount": user.get("money_goal_amount"),
                 "tier_expires_at": user.get("tier_expires_at"),
@@ -309,23 +310,29 @@ async def set_time_setting(request: web.Request):
 
     body = await request.json()
     field = body.get("field")
-    time_str = body.get("value")
+    time_str = (body.get("value") or "").strip()
 
     allowed_fields = {
         "morning_digest_time",
         "breakfast_reminder_time",
         "lunch_reminder_time",
         "dinner_reminder_time",
+        "money_reminder_time",
     }
     if field not in allowed_fields:
         return web.json_response({"error": "invalid_field"}, status=400)
 
+    if not time_str:
+        # Empty value = the user turned this reminder off.
+        await db.set_user_time(user["id"], field, None)
+        return web.json_response({"ok": True})
+
     import re
 
-    if not re.fullmatch(r"[0-2]?\d:[0-5]\d", (time_str or "").strip()):
+    if not re.fullmatch(r"[0-2]?\d:[0-5]\d", time_str):
         return web.json_response({"error": "invalid_time"}, status=400)
 
-    await db.set_user_time(user["id"], field, time_str.strip())
+    await db.set_user_time(user["id"], field, time_str)
     return web.json_response({"ok": True})
 
 

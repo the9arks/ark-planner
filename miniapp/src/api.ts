@@ -62,10 +62,11 @@ export interface Digest {
   user: {
     tier: Tier;
     daily_ai_limit: number | null;
-    morning_digest_time: string;
-    breakfast_reminder_time: string;
-    lunch_reminder_time: string;
-    dinner_reminder_time: string;
+    morning_digest_time: string | null;
+    breakfast_reminder_time: string | null;
+    lunch_reminder_time: string | null;
+    dinner_reminder_time: string | null;
+    money_reminder_time: string | null;
     tz_offset: number;
     money_goal_amount: number | null;
     tier_expires_at: string | null;

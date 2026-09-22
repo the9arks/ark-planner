@@ -29,9 +29,12 @@ def _due(now: datetime, hour: int, minute: int) -> bool:
 
 async def _send_morning_digests(_unused_now: datetime):
     for user in await db.get_all_users():
+        time_value = user.get("morning_digest_time")
+        if not time_value:
+            continue  # user turned this reminder off
         now = _user_now(user)
         today_iso = now.date().isoformat()
-        hour, minute = _parse_hhmm(user.get("morning_digest_time") or "08:00")
+        hour, minute = _parse_hhmm(time_value)
         if not _due(now, hour, minute):
             continue
         if user.get("last_morning_digest_date") == today_iso:
@@ -65,9 +68,12 @@ MEAL_CONFIG = {
 async def _send_meal_reminders(_unused_now: datetime):
     for meal, (time_field, since_hour, label) in MEAL_CONFIG.items():
         for user in await db.get_all_users():
+            time_value = user.get(time_field)
+            if not time_value:
+                continue  # user turned this reminder off
             now = _user_now(user)
             today_iso = now.date().isoformat()
-            hour, minute = _parse_hhmm(user.get(time_field) or "09:30")
+            hour, minute = _parse_hhmm(time_value)
             if not _due(now, hour, minute):
                 continue
             field = f"last_{meal}_reminder_date"
@@ -81,6 +87,28 @@ async def _send_meal_reminders(_unused_now: datetime):
                 f"Уже {label}? Скинь фото тарелки или напиши, что съел — посчитаю калории.",
             )
             await db.mark_meal_reminder_sent(user["id"], meal, today_iso)
+
+
+async def _send_money_reminders(_unused_now: datetime):
+    for user in await db.get_all_users():
+        time_value = user.get("money_reminder_time")
+        if not time_value:
+            continue  # user turned this reminder off
+        now = _user_now(user)
+        today_iso = now.date().isoformat()
+        hour, minute = _parse_hhmm(time_value)
+        if not _due(now, hour, minute):
+            continue
+        if user.get("last_money_reminder_date") == today_iso:
+            continue
+        since = now.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+        if await db.has_money_entry_since(user["id"], since):
+            continue
+        await _send_message(
+            user["telegram_id"],
+            "Не забыл занести траты за сегодня? Скинь чек или просто напиши сумму.",
+        )
+        await db.mark_money_reminder_sent(user["id"], today_iso)
 
 
 async def _send_meeting_reminders(now: datetime):
@@ -143,6 +171,7 @@ async def run_tick():
     await db.downgrade_expired_users()
     await _send_morning_digests(now)
     await _send_meal_reminders(now)
+    await _send_money_reminders(now)
     await _send_meeting_reminders(now)
     await _send_habit_reminders(now)
     await _send_task_reminders(now)

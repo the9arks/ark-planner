@@ -1043,11 +1043,24 @@ function TimeRow({
 }: {
   label: string;
   field: string;
-  value: string;
+  value: string | null;
   onSaved: (field: string, value: string) => void;
 }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(false);
+
+  const save = async (next: string) => {
+    setSaving(true);
+    setError(false);
+    try {
+      await setTimeSetting(field, next);
+      onSaved(field, next);
+    } catch {
+      setError(true);
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <div className="flex items-center justify-between rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3">
@@ -1055,26 +1068,35 @@ function TimeRow({
         {label}
         {error && <span className="text-red-400/80 text-xs ml-2">не сохранилось, попробуй ещё раз</span>}
       </span>
-      <input
-        type="time"
-        defaultValue={value?.slice(0, 5)}
-        disabled={saving}
-        onChange={async (e) => {
-          const next = e.target.value;
-          if (!next) return;
-          setSaving(true);
-          setError(false);
-          try {
-            await setTimeSetting(field, next);
-            onSaved(field, next);
-          } catch {
-            setError(true);
-          } finally {
-            setSaving(false);
-          }
-        }}
-        className="bg-white/[0.06] border border-white/10 rounded-lg px-2 py-1 text-sm text-white [color-scheme:dark]"
-      />
+      {value ? (
+        <div className="flex items-center gap-2">
+          <input
+            type="time"
+            defaultValue={value.slice(0, 5)}
+            disabled={saving}
+            onChange={(e) => e.target.value && save(e.target.value)}
+            className="bg-white/[0.06] border border-white/10 rounded-lg px-2 py-1 text-sm text-white [color-scheme:dark]"
+          />
+          <button
+            type="button"
+            disabled={saving}
+            onClick={() => save("")}
+            aria-label={`Выключить напоминание «${label}»`}
+            className="text-white/40 hover:text-white/70 text-sm px-1.5 leading-none disabled:opacity-40"
+          >
+            ✕
+          </button>
+        </div>
+      ) : (
+        <button
+          type="button"
+          disabled={saving}
+          onClick={() => save("09:00")}
+          className="text-xs px-3 py-1.5 rounded-lg border border-white/10 bg-white/[0.06] text-white/60 disabled:opacity-40"
+        >
+          Включить
+        </button>
+      )}
     </div>
   );
 }
@@ -1295,6 +1317,12 @@ function SettingsView({
         label="Ужин"
         field="dinner_reminder_time"
         value={user.dinner_reminder_time}
+        onSaved={onTimeSaved}
+      />
+      <TimeRow
+        label="Занести траты"
+        field="money_reminder_time"
+        value={user.money_reminder_time}
         onSaved={onTimeSaved}
       />
     </div>
