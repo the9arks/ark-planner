@@ -356,7 +356,14 @@ function formatWhen(iso?: string | null): string {
 interface Task { id: string; created_at: string; title: string; due_at: string | null }
 interface Note { id: string; created_at: string; content: string }
 interface Meeting { id: string; created_at: string; title: string; with_who: string | null; starts_at: string | null }
-interface MoneyEntry { id: string; created_at: string; amount: number; category: string | null; comment: string | null }
+interface MoneyEntry {
+  id: string;
+  created_at: string;
+  amount: number;
+  category: string | null;
+  comment: string | null;
+  direction: "expense" | "income";
+}
 interface FoodEntry { id: string; created_at: string; description: string | null; calories: number | null }
 interface Habit {
   id: string;
@@ -567,13 +574,23 @@ function MoneyView({ refreshTick }: { refreshTick: number }) {
     <div className="flex flex-col gap-3">
       <div className="grid grid-cols-2 gap-3">
         <Card title="Сегодня">
-          <div className="flex-1 flex items-end">
+          <div className="flex-1 flex flex-col justify-end gap-1">
             <span className="text-2xl font-semibold">{summary ? `${summary.today_total}₽` : "…"}</span>
+            {summary && (summary.income_today > 0 || summary.expense_today > 0) && (
+              <span className="text-white/30 text-xs">
+                −{summary.expense_today}₽ · +{summary.income_today}₽
+              </span>
+            )}
           </div>
         </Card>
         <Card title="Месяц">
-          <div className="flex-1 flex items-end">
+          <div className="flex-1 flex flex-col justify-end gap-1">
             <span className="text-2xl font-semibold">{summary ? `${summary.month_total}₽` : "…"}</span>
+            {summary && (summary.income_month > 0 || summary.expense_month > 0) && (
+              <span className="text-white/30 text-xs">
+                −{summary.expense_month}₽ · +{summary.income_month}₽
+              </span>
+            )}
           </div>
         </Card>
       </div>
@@ -635,7 +652,7 @@ function MoneyView({ refreshTick }: { refreshTick: number }) {
         emptyLabel="Трат пока нет"
         emptyHint="Пришли фото чека — занесу автоматически"
         render={(m) => ({
-          title: `${m.amount}₽ ${m.category ?? ""}`,
+          title: `${m.direction === "income" ? "+" : "−"}${m.amount}₽ ${m.category ?? ""}`,
           subtitle: m.comment ?? undefined,
         })}
       />

@@ -147,13 +147,16 @@ async def store_entry(user_id: str, data: dict, tz_offset: int = 3) -> dict:
             _localize(data.get("starts_at"), tz_offset),
         )
     elif entry_type == "money":
+        direction = data.get("direction") or "expense"
         await db.add_money(
             user_id,
             data.get("amount"),
             data.get("category"),
             data.get("description"),
             data.get("comment"),
+            direction,
         )
+        data["direction"] = direction
     elif entry_type == "food":
         await db.add_food(
             user_id,
@@ -263,7 +266,11 @@ def format_reply(data: dict, tz_offset: int = 3) -> str:
         with_who = f" с {data['with_who']}" if data.get("with_who") else ""
         reply = f"🤝 Встреча{with_who}{when_str}"
     elif entry_type == "money":
-        reply = f"💸 Записал: {data.get('amount')}₽ — {data.get('category') or data.get('description')}"
+        what = data.get("category") or data.get("description")
+        if data.get("direction") == "income":
+            reply = f"💰 Доход: +{data.get('amount')}₽ — {what}"
+        else:
+            reply = f"💸 Расход: -{data.get('amount')}₽ — {what}"
     elif entry_type == "food":
         reply = f"🍽 Записал: {data.get('description')} (~{data.get('calories')} ккал)"
     elif entry_type == "sleep":

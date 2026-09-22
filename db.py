@@ -484,7 +484,14 @@ async def reschedule_meeting(meeting_id: str, starts_at: str) -> dict:
     return await _run(_reschedule_meeting_sync, meeting_id, starts_at)
 
 
-async def add_money(user_id: str, amount: float, category: str | None, comment: str | None, ai_comment: str | None) -> dict:
+async def add_money(
+    user_id: str,
+    amount: float,
+    category: str | None,
+    comment: str | None,
+    ai_comment: str | None,
+    direction: str = "expense",
+) -> dict:
     return await _run(
         _insert_sync,
         "money_entries",
@@ -494,6 +501,7 @@ async def add_money(user_id: str, amount: float, category: str | None, comment: 
             "category": category,
             "comment": comment,
             "ai_comment": ai_comment,
+            "direction": direction if direction in ("expense", "income") else "expense",
         },
     )
 
@@ -779,18 +787,31 @@ def _get_money_summary_sync(user_id: str) -> dict:
     today_iso = today.isoformat()
     month_start_iso = today.replace(day=1).isoformat()
 
-    def sum_since(since_iso: str) -> float:
+    def totals_since(since_iso: str) -> tuple[float, float]:
         rows = (
             db.table("money_entries")
-            .select("amount")
+            .select("amount,direction")
             .eq("user_id", user_id)
             .gte("created_at", since_iso)
             .execute()
             .data
         )
-        return sum(r["amount"] or 0 for r in rows)
+        income = sum(r["amount"] or 0 for r in rows if r.get("direction") == "income")
+        expense = sum(r["amount"] or 0 for r in rows if r.get("direction") != "income")
+        return income, expense
 
-    return {"today_total": sum_since(today_iso), "month_total": sum_since(month_start_iso)}
+    income_today, expense_today = totals_since(today_iso)
+    income_month, expense_month = totals_since(month_start_iso)
+
+    return {
+        # Net (expense - income) — what actually left your pocket, refunds credited back.
+        "today_total": expense_today - income_today,
+        "month_total": expense_month - income_month,
+        "income_today": income_today,
+        "expense_today": expense_today,
+        "income_month": income_month,
+        "expense_month": expense_month,
+    }
 
 
 async def get_money_summary(user_id: str) -> dict:

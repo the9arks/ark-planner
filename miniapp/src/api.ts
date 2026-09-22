@@ -90,6 +90,10 @@ export function getDigest() {
 export interface MoneySummary {
   today_total: number;
   month_total: number;
+  income_today: number;
+  expense_today: number;
+  income_month: number;
+  expense_month: number;
   goal_amount: number | null;
 }
 
