@@ -3,9 +3,12 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 import db
+import payments
 from core import send_message as _send_message
 
 UTC = timezone.utc
+
+_TARIFFS_KEYBOARD = {"inline_keyboard": [[{"text": "💳 Тарифы", "callback_data": "info_tariffs"}]]}
 
 WEEKDAY_CODES = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
 
@@ -166,9 +169,36 @@ async def _send_habit_reminders(_unused_now: datetime):
         await db.mark_habit_reminded(habit["id"], today_iso)
 
 
+async def _send_last_day_warnings(now: datetime):
+    threshold = now + timedelta(hours=24)
+    users = await db.get_users_needing_last_day_warning(now.isoformat(), threshold.isoformat())
+    for user in users:
+        tier_label = payments.TIER_LABEL.get(user["tier"], user["tier"])
+        await _send_message(
+            user["telegram_id"],
+            f"⏳ Завтра заканчивается твоя подписка {tier_label}. Чтобы не потерять доступ — "
+            f"продли сейчас, это займёт минуту.",
+            reply_markup=_TARIFFS_KEYBOARD,
+        )
+        await db.mark_last_day_notified(user["id"], user["tier_expires_at"])
+
+
+async def _send_expired_notifications(now: datetime):
+    downgraded = await db.downgrade_expired_users()
+    for user in downgraded:
+        tier_label = payments.TIER_LABEL.get(user["tier"], user["tier"])
+        await _send_message(
+            user["telegram_id"],
+            f"😔 Подписка {tier_label} закончилась — аккаунт переведён на Free. "
+            f"Хочешь вернуть безлимит и историю — оформи новую подписку.",
+            reply_markup=_TARIFFS_KEYBOARD,
+        )
+
+
 async def run_tick():
     now = datetime.now(UTC)
-    await db.downgrade_expired_users()
+    await _send_last_day_warnings(now)
+    await _send_expired_notifications(now)
     await _send_morning_digests(now)
     await _send_meal_reminders(now)
     await _send_money_reminders(now)

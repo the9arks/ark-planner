@@ -182,15 +182,57 @@ async def grant_tier(user_id: str, tier: str, days: int | None) -> dict:
     return await _run(_grant_tier_sync, user_id, tier, days)
 
 
-def _downgrade_expired_users_sync() -> None:
+def _downgrade_expired_users_sync() -> list[dict]:
+    client = get_client()
     now_iso = datetime.now(timezone.utc).isoformat()
-    get_client().table("users").update({"tier": "free", "tier_expires_at": None}).neq(
-        "tier", "free"
-    ).lt("tier_expires_at", now_iso).execute()
+    expiring = (
+        client.table("users")
+        .select("id,telegram_id,tier")
+        .neq("tier", "free")
+        .lt("tier_expires_at", now_iso)
+        .execute()
+        .data
+    )
+    if expiring:
+        client.table("users").update({"tier": "free", "tier_expires_at": None}).in_(
+            "id", [u["id"] for u in expiring]
+        ).execute()
+    return expiring
 
 
-async def downgrade_expired_users() -> None:
-    await _run(_downgrade_expired_users_sync)
+async def downgrade_expired_users() -> list[dict]:
+    """Downgrades every user whose paid tier just lapsed and returns them (id,
+    telegram_id, tier they had) so the caller can notify each one — the DB
+    update alone is silent."""
+    return await _run(_downgrade_expired_users_sync)
+
+
+def _get_users_needing_last_day_warning_sync(now_iso: str, threshold_iso: str) -> list[dict]:
+    rows = (
+        get_client()
+        .table("users")
+        .select("id,telegram_id,tier,tier_expires_at,last_day_notified_expiry")
+        .neq("tier", "free")
+        .gte("tier_expires_at", now_iso)
+        .lte("tier_expires_at", threshold_iso)
+        .execute()
+        .data
+    )
+    return [u for u in rows if u.get("last_day_notified_expiry") != u.get("tier_expires_at")]
+
+
+async def get_users_needing_last_day_warning(now_iso: str, threshold_iso: str) -> list[dict]:
+    return await _run(_get_users_needing_last_day_warning_sync, now_iso, threshold_iso)
+
+
+def _mark_last_day_notified_sync(user_id: str, tier_expires_at: str) -> None:
+    get_client().table("users").update({"last_day_notified_expiry": tier_expires_at}).eq(
+        "id", user_id
+    ).execute()
+
+
+async def mark_last_day_notified(user_id: str, tier_expires_at: str) -> None:
+    await _run(_mark_last_day_notified_sync, user_id, tier_expires_at)
 
 
 def _create_order_sync(

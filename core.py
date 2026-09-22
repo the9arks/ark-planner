@@ -13,11 +13,14 @@ import aiohttp
 import db
 
 
-async def send_message(telegram_id: int, text: str) -> None:
+async def send_message(telegram_id: int, text: str, reply_markup: dict | None = None) -> None:
     token = os.environ["TELEGRAM_BOT_TOKEN"]
     url = f"https://api.telegram.org/bot{token}/sendMessage"
+    body = {"chat_id": telegram_id, "text": text}
+    if reply_markup:
+        body["reply_markup"] = reply_markup
     async with aiohttp.ClientSession() as session:
-        async with session.post(url, json={"chat_id": telegram_id, "text": text}) as resp:
+        async with session.post(url, json=body) as resp:
             await resp.read()
 
 
