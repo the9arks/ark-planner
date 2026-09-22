@@ -79,6 +79,7 @@ export interface Digest {
     money_today: number;
     food_today: number;
     rituals_today: number;
+    sleep_hours_last: number | null;
   };
 }
 

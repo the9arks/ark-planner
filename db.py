@@ -513,6 +513,44 @@ async def add_food(user_id: str, description: str | None, calories: int | None, 
     )
 
 
+async def add_sleep(
+    user_id: str,
+    sleep_start: str | None,
+    sleep_end: str | None,
+    hours: float | None,
+    comment: str | None,
+) -> dict:
+    return await _run(
+        _insert_sync,
+        "sleep_logs",
+        {
+            "user_id": user_id,
+            "sleep_start": sleep_start,
+            "sleep_end": sleep_end,
+            "hours": hours,
+            "comment": comment,
+        },
+    )
+
+
+def _get_last_sleep_sync(user_id: str) -> dict | None:
+    rows = (
+        get_client()
+        .table("sleep_logs")
+        .select("*")
+        .eq("user_id", user_id)
+        .order("created_at", desc=True)
+        .limit(1)
+        .execute()
+        .data
+    )
+    return rows[0] if rows else None
+
+
+async def get_last_sleep(user_id: str) -> dict | None:
+    return await _run(_get_last_sleep_sync, user_id)
+
+
 async def add_ritual_log(user_id: str, title: str) -> dict:
     db = get_client()
 
@@ -710,6 +748,16 @@ def _get_digest_sync(user_id: str) -> dict:
         )
         return q.execute().count or 0
 
+    last_sleep_rows = (
+        db.table("sleep_logs")
+        .select("hours,created_at")
+        .eq("user_id", user_id)
+        .order("created_at", desc=True)
+        .limit(1)
+        .execute()
+        .data
+    )
+
     return {
         "tasks_today": count("tasks"),
         "notes_today": count("notes"),
@@ -717,6 +765,7 @@ def _get_digest_sync(user_id: str) -> dict:
         "money_today": count("money_entries"),
         "food_today": count("food_entries"),
         "rituals_today": count("ritual_logs", "done_at"),
+        "sleep_hours_last": last_sleep_rows[0]["hours"] if last_sleep_rows else None,
     }
 
 

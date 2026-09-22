@@ -176,6 +176,18 @@ async def store_entry(user_id: str, data: dict, tz_offset: int = 3) -> dict:
                 extra = f"Это уже {eaten} из {goal} ккал — почти в притык, дальше аккуратнее."
             if extra:
                 data["comment"] = f"{data.get('comment')} {extra}".strip() if data.get("comment") else extra
+    elif entry_type == "sleep":
+        sleep_start = _localize(data.get("sleep_start"), tz_offset)
+        sleep_end = _localize(data.get("sleep_end"), tz_offset)
+        hours = data.get("sleep_hours")
+        if hours is None and sleep_start and sleep_end:
+            hours = round(
+                (datetime.fromisoformat(sleep_end) - datetime.fromisoformat(sleep_start)).total_seconds()
+                / 3600,
+                1,
+            )
+        data["sleep_hours"] = hours
+        await db.add_sleep(user_id, sleep_start, sleep_end, hours, data.get("comment"))
     elif entry_type == "ritual":
         title = data.get("title") or data.get("description")
         action = data.get("habit_action")
@@ -254,6 +266,10 @@ def format_reply(data: dict, tz_offset: int = 3) -> str:
         reply = f"💸 Записал: {data.get('amount')}₽ — {data.get('category') or data.get('description')}"
     elif entry_type == "food":
         reply = f"🍽 Записал: {data.get('description')} (~{data.get('calories')} ккал)"
+    elif entry_type == "sleep":
+        hours = data.get("sleep_hours")
+        hours_str = f"{hours} ч" if hours is not None else "—"
+        reply = f"😴 Сон: {hours_str}"
     elif entry_type == "ritual":
         title = data.get("title") or data.get("description")
         action = data.get("habit_action")

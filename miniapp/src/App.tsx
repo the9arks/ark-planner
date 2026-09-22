@@ -141,7 +141,13 @@ function DigestView({ digest, onNavigate }: { digest: Digest | null; onNavigate:
   const d = digest?.digest;
   const hasAny =
     !!d &&
-    (d.tasks_today || d.notes_today || d.meetings_today || d.money_today || d.food_today || d.rituals_today);
+    (d.tasks_today ||
+      d.notes_today ||
+      d.meetings_today ||
+      d.money_today ||
+      d.food_today ||
+      d.rituals_today ||
+      d.sleep_hours_last != null);
 
   return (
     <div className="flex flex-col gap-3">
@@ -192,6 +198,18 @@ function DigestView({ digest, onNavigate }: { digest: Digest | null; onNavigate:
           hint="Настрой бюджет"
           onClick={() => onNavigate("money")}
         />
+        <Card title="Сон">
+          {d?.sleep_hours_last != null ? (
+            <div className="flex-1 flex items-end">
+              <span className="text-3xl font-semibold">{d.sleep_hours_last}</span>
+              <span className="text-white/30 text-sm ml-1 mb-1">ч. в последний раз</span>
+            </div>
+          ) : (
+            <div className="flex-1 flex items-center">
+              <span className="text-white/30 text-sm">Скажи, во сколько лёг и встал</span>
+            </div>
+          )}
+        </Card>
       </div>
     </div>
   );
