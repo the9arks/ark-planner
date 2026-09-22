@@ -204,14 +204,19 @@ async def store_entries(user_id: str, entries: list[dict], tz_offset: int = 3) -
     return [await store_entry(user_id, entry, tz_offset) for entry in entries]
 
 
-def format_when(iso_str: str | None) -> str:
+def format_when(iso_str: str | None, tz_offset: int = 3) -> str:
     if not iso_str:
         return ""
     try:
         dt = datetime.fromisoformat(iso_str)
     except ValueError:
         return iso_str
-    today = datetime.now(dt.tzinfo).date() if dt.tzinfo else datetime.now().date()
+    # dt is naive and already in the user's local time (that's what ai.py
+    # produces) — compare against "today" in that same timezone, not the
+    # server's own clock (server runs UTC, so anyone at UTC+ offsets would
+    # get "завтра" for something that's actually later today, every day
+    # during the hours their local date has already rolled over past UTC's).
+    today = datetime.now(timezone(timedelta(hours=tz_offset))).date()
     if dt.date() == today:
         return f"сегодня в {dt.strftime('%H:%M')}"
     if dt.date().toordinal() - today.toordinal() == 1:
@@ -219,16 +224,16 @@ def format_when(iso_str: str | None) -> str:
     return dt.strftime("%d.%m в %H:%M")
 
 
-def format_reply(data: dict) -> str:
+def format_reply(data: dict, tz_offset: int = 3) -> str:
     entry_type = data.get("entry_type")
     if entry_type == "task":
-        when = format_when(data.get("starts_at"))
+        when = format_when(data.get("starts_at"), tz_offset)
         due = f" (до {when})" if when else ""
         reply = f"✅ Задача: {data.get('title') or data.get('description')}{due}"
         if data.get("remind") and when:
             reply += f"\n🔔 Напомню {when}"
     elif entry_type == "meeting":
-        when = format_when(data.get("starts_at"))
+        when = format_when(data.get("starts_at"), tz_offset)
         when_str = f" {when}" if when else ""
         with_who = f" с {data['with_who']}" if data.get("with_who") else ""
         reply = f"🤝 Встреча{with_who}{when_str}"
@@ -267,7 +272,7 @@ def format_reply(data: dict) -> str:
     return reply
 
 
-def format_replies(entries: list[dict]) -> str:
+def format_replies(entries: list[dict], tz_offset: int = 3) -> str:
     if len(entries) == 1:
-        return format_reply(entries[0])
-    return "\n\n".join(f"{i}. {format_reply(e)}" for i, e in enumerate(entries, start=1))
+        return format_reply(entries[0], tz_offset)
+    return "\n\n".join(f"{i}. {format_reply(e, tz_offset)}" for i, e in enumerate(entries, start=1))

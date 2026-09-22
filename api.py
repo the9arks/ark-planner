@@ -398,7 +398,7 @@ async def create_entry(request: web.Request):
     try:
         entries = ai.classify_text(text, tz_offset=tz_offset)
         entries = await core.store_entries(user["id"], entries, tz_offset)
-        reply = core.format_replies(entries)
+        reply = core.format_replies(entries, tz_offset)
     except ai.ServiceUnavailable:
         logging.exception("create_entry: AI service unavailable")
         await db.refund_quota(user)
@@ -437,7 +437,7 @@ async def shortcut_entry(request: web.Request):
     try:
         entries = ai.classify_text(text, tz_offset=tz_offset)
         entries = await core.store_entries(user["id"], entries, tz_offset)
-        reply = core.format_replies(entries)
+        reply = core.format_replies(entries, tz_offset)
     except ai.ServiceUnavailable:
         logging.exception("shortcut_entry: AI service unavailable")
         await db.refund_quota(user)
