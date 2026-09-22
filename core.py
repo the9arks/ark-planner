@@ -163,6 +163,19 @@ async def store_entry(user_id: str, data: dict, tz_offset: int = 3) -> dict:
             data.get("fat_g"),
             data.get("carbs_g"),
         )
+        # Only nag if the person set a calorie goal themselves — silence
+        # otherwise (no goal = no judgment, we're not the food police).
+        goal = await db.get_calorie_goal(user_id)
+        if goal:
+            eaten = await db.get_calories_today(user_id)
+            ratio = eaten / goal
+            extra = None
+            if ratio >= 1:
+                extra = f"Это уже {eaten} из {goal} ккал — цель на сегодня превышена."
+            elif ratio >= 0.9:
+                extra = f"Это уже {eaten} из {goal} ккал — почти в притык, дальше аккуратнее."
+            if extra:
+                data["comment"] = f"{data.get('comment')} {extra}".strip() if data.get("comment") else extra
     elif entry_type == "ritual":
         title = data.get("title") or data.get("description")
         action = data.get("habit_action")

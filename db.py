@@ -764,6 +764,15 @@ async def set_calorie_goal(user_id: str, amount: int | None) -> None:
     await _run(_set_calorie_goal_sync, user_id, amount)
 
 
+def _get_calorie_goal_sync(user_id: str) -> int | None:
+    rows = get_client().table("users").select("calorie_goal").eq("id", user_id).execute().data
+    return rows[0]["calorie_goal"] if rows else None
+
+
+async def get_calorie_goal(user_id: str) -> int | None:
+    return await _run(_get_calorie_goal_sync, user_id)
+
+
 def _get_calories_today_sync(user_id: str) -> int:
     today = date.today().isoformat()
     rows = (
