@@ -115,8 +115,8 @@ def _claim_trial_sync(user_id: str) -> bool:
     opened the Mini App (not just /start) — a cheap signal against drive-by
     abuse. Returns False if already claimed or already on a paid tier."""
     db = get_client()
-    user = db.table("users").select("tier, trial_granted_at").eq("id", user_id).execute().data[0]
-    if user.get("trial_granted_at") or (user.get("tier") or "free") != "free":
+    user = db.table("users").select("tier, tier_expires_at, trial_granted_at").eq("id", user_id).execute().data[0]
+    if user.get("trial_granted_at") or effective_tier(user) != "free":
         return False
     now = datetime.now(timezone.utc)
     db.table("users").update(

@@ -1365,6 +1365,7 @@ function SettingsView({
 }
 
 const ONBOARDING_KEY = "ark_onboarding_seen";
+const TRIAL_OFFER_DISMISSED_KEY = "ark_trial_dismissed";
 
 const ONBOARDING_SLIDES = [
   {
@@ -1564,10 +1565,6 @@ export default function App() {
       // ignore — worst case the onboarding shows again next time
     }
     setShowOnboarding(false);
-    // Opening the app and clicking through onboarding is the "did something,
-    // not just /start" signal that earns the one-time trial offer — but the
-    // grant itself only happens once the person taps "Принять подарок".
-    setShowTrialOffer(true);
   }
 
   function acceptTrial() {
@@ -1579,6 +1576,15 @@ export default function App() {
         setTimeout(() => setTrialToast(null), 6000);
       }
     });
+  }
+
+  function skipTrial() {
+    try {
+      localStorage.setItem(TRIAL_OFFER_DISMISSED_KEY, "1");
+    } catch {
+      // ignore — worst case the offer reappears next time
+    }
+    setShowTrialOffer(false);
   }
 
   const [tab, setTab] = useState<TabId>("digest");
@@ -1601,6 +1607,24 @@ export default function App() {
   useEffect(() => {
     getDigest().then(setDigest).catch(() => setDigest(null));
   }, [refreshTick]);
+
+  // Право на пробный период решает бэкенд (free-тариф, ещё не получал триал,
+  // не было платных заказов) — а не то, помнит ли это устройство онбординг
+  // как "уже показанный". Раньше показ был завязан только на онбординг —
+  // значит на устройстве, где онбординг уже когда-то проходили (например,
+  // старая установка), предложение триала больше никогда не появлялось,
+  // даже для аккаунта, которому он реально положен — выглядело так, будто
+  // "триал просто не работает".
+  useEffect(() => {
+    if (!digest || showOnboarding) return;
+    if (digest.user.tier !== "free" || digest.user.had_subscription) return;
+    try {
+      if (localStorage.getItem(TRIAL_OFFER_DISMISSED_KEY)) return;
+    } catch {
+      // ignore — fall through and show it
+    }
+    setShowTrialOffer(true);
+  }, [digest, showOnboarding]);
 
   useEffect(() => {
     getSubscriptionStatus()
@@ -1635,7 +1659,7 @@ export default function App() {
         />
       )}
       {!showOnboarding && !gated && showTrialOffer && (
-        <TrialOffer onAccept={acceptTrial} onSkip={() => setShowTrialOffer(false)} />
+        <TrialOffer onAccept={acceptTrial} onSkip={skipTrial} />
       )}
       {!showOnboarding && !gated && !showTrialOffer && showEnded && (
         <SubscriptionEndedModal onDismiss={() => setDismissedEnded(true)} />
