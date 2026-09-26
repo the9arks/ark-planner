@@ -312,6 +312,8 @@ def format_reply(data: dict, tz_offset: int = 3) -> str:
 
 
 def format_replies(entries: list[dict], tz_offset: int = 3) -> str:
+    if not entries:
+        return "Не понял, что с этим делать — можешь переформулировать?"
     if len(entries) == 1:
         return format_reply(entries[0], tz_offset)
     return "\n\n".join(f"{i}. {format_reply(e, tz_offset)}" for i, e in enumerate(entries, start=1))
