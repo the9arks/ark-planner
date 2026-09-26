@@ -213,6 +213,16 @@ def _hours_between(start_iso: str | None, end_iso: str | None) -> float | None:
     return round(delta, 1)
 
 
+@routes.delete("/api/habits/{habit_id}")
+async def delete_habit_route(request: web.Request):
+    user = await _authenticate(request)
+    if not user:
+        return web.json_response({"error": "unauthorized"}, status=401)
+
+    await db.delete_habit(request.match_info["habit_id"], user["id"])
+    return web.json_response({"ok": True})
+
+
 @routes.post("/api/sleep/manual")
 async def add_sleep_manual(request: web.Request):
     user = await _authenticate(request)

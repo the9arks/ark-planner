@@ -52,3 +52,10 @@ services:
     envVars:
       - key: VITE_API_URL
         sync: false
+    headers:
+      # index.html references the hashed JS/CSS bundle by name, so it must
+      # never be served stale — otherwise Telegram's WebView (which caches
+      # aggressively) keeps running an old build after every deploy.
+      - path: /index.html
+        name: Cache-Control
+        value: no-cache, must-revalidate

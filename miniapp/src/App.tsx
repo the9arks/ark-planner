@@ -7,6 +7,7 @@ import {
   claimTrial,
   completeTask,
   createOrder,
+  deleteHabit,
   deleteMoneyEntry,
   deleteNote,
   deleteSleep,
@@ -485,9 +486,11 @@ const WEEKDAY_RU_SHORT: Record<string, string> = {
 function HabitCard({
   habit,
   onAction,
+  onDelete,
 }: {
   habit: Habit;
   onAction: (habitId: string, kind: "checkin" | "relapse") => Promise<void>;
+  onDelete: (habitId: string) => Promise<void>;
 }) {
   const isQuit = habit.habit_type === "quit";
   const days = habit.current_streak;
@@ -507,6 +510,15 @@ function HabitCard({
     }
   }
 
+  async function handleDelete() {
+    setBusy(true);
+    try {
+      await onDelete(habit.id);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4 flex flex-col gap-3">
       <div className="flex items-center justify-between gap-3">
@@ -514,9 +526,19 @@ function HabitCard({
           <div className="text-sm">{habit.title}</div>
           {schedule && <div className="text-white/40 text-xs">{schedule}</div>}
         </div>
-        <div className="text-right shrink-0">
-          <div className="text-2xl font-semibold">{days}</div>
-          <div className="text-white/30 text-[10px]">{isQuit ? "дней без срыва" : "дней подряд"}</div>
+        <div className="flex items-center gap-3 shrink-0">
+          <div className="text-right">
+            <div className="text-2xl font-semibold">{days}</div>
+            <div className="text-white/30 text-[10px]">{isQuit ? "дней без срыва" : "дней подряд"}</div>
+          </div>
+          <button
+            disabled={busy}
+            onClick={handleDelete}
+            aria-label="Удалить привычку"
+            className="text-white/30 hover:text-white/70 text-sm px-1 leading-none disabled:opacity-40"
+          >
+            ✕
+          </button>
         </div>
       </div>
       <div className="flex gap-2">
@@ -587,6 +609,16 @@ function HabitsView({ refreshTick, onChanged }: { refreshTick: number; onChanged
     setTimeout(() => setToast(null), 4000);
   }
 
+  async function handleDelete(habitId: string) {
+    try {
+      await deleteHabit(habitId);
+      setHabits((prev) => (prev ? prev.filter((h) => h.id !== habitId) : prev));
+    } catch {
+      setToast("Не получилось удалить, попробуй ещё раз");
+      setTimeout(() => setToast(null), 4000);
+    }
+  }
+
   if (habits === null) {
     return <div className="text-white/30 text-sm text-center py-20">Загрузка…</div>;
   }
@@ -613,7 +645,7 @@ function HabitsView({ refreshTick, onChanged }: { refreshTick: number; onChanged
         <div className="flex flex-col gap-2">
           <div className="text-[11px] uppercase tracking-wider text-white/40">🎯 Привычки</div>
           {building.map((h) => (
-            <HabitCard key={h.id} habit={h} onAction={handleAction} />
+            <HabitCard key={h.id} habit={h} onAction={handleAction} onDelete={handleDelete} />
           ))}
         </div>
       )}
@@ -621,7 +653,7 @@ function HabitsView({ refreshTick, onChanged }: { refreshTick: number; onChanged
         <div className="flex flex-col gap-2">
           <div className="text-[11px] uppercase tracking-wider text-white/40">🚭 Отказы</div>
           {quitting.map((h) => (
-            <HabitCard key={h.id} habit={h} onAction={handleAction} />
+            <HabitCard key={h.id} habit={h} onAction={handleAction} onDelete={handleDelete} />
           ))}
         </div>
       )}

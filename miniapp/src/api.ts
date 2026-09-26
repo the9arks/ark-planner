@@ -131,6 +131,10 @@ export function relapseHabit(habitId: string) {
   return apiPost<HabitActionResult>(`/api/habits/${habitId}/relapse`, {});
 }
 
+export function deleteHabit(habitId: string) {
+  return apiDelete<{ ok: boolean }>(`/api/habits/${habitId}`);
+}
+
 export interface FoodSummary {
   calories_today: number;
   goal: number | null;

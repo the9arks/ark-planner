@@ -735,6 +735,18 @@ async def list_habits(user_id: str) -> list[dict]:
     return await _run(_list_habits_sync, user_id)
 
 
+def _delete_habit_sync(ritual_id: str, user_id: str) -> None:
+    db = get_client()
+    # ritual_logs has no ON DELETE CASCADE on ritual_id, so clear its check-ins
+    # first or the habit row's own delete would fail on the foreign key.
+    db.table("ritual_logs").delete().eq("ritual_id", ritual_id).eq("user_id", user_id).execute()
+    db.table("rituals").delete().eq("id", ritual_id).eq("user_id", user_id).execute()
+
+
+async def delete_habit(ritual_id: str, user_id: str) -> None:
+    await _run(_delete_habit_sync, ritual_id, user_id)
+
+
 def _get_all_habits_sync() -> list[dict]:
     return (
         get_client()
