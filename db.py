@@ -503,12 +503,12 @@ async def get_meeting(meeting_id: str) -> dict | None:
     return await _run(_get_meeting_sync, meeting_id)
 
 
-def _delete_meeting_sync(meeting_id: str) -> None:
-    get_client().table("meetings").delete().eq("id", meeting_id).execute()
+def _delete_meeting_sync(meeting_id: str, user_id: str) -> None:
+    get_client().table("meetings").delete().eq("id", meeting_id).eq("user_id", user_id).execute()
 
 
-async def delete_meeting(meeting_id: str) -> None:
-    await _run(_delete_meeting_sync, meeting_id)
+async def delete_meeting(meeting_id: str, user_id: str) -> None:
+    await _run(_delete_meeting_sync, meeting_id, user_id)
 
 
 def _delete_note_sync(note_id: str, user_id: str) -> None:

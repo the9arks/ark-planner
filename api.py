@@ -197,7 +197,7 @@ async def cancel_meeting(request: web.Request):
     if not meeting or meeting["user_id"] != user["id"]:
         return web.json_response({"error": "not_found"}, status=404)
 
-    await db.delete_meeting(meeting["id"])
+    await db.delete_meeting(meeting["id"], user["id"])
     return web.json_response({"ok": True})
 
 
@@ -687,14 +687,24 @@ def create_app() -> web.Application:
     app = web.Application()
     app.add_routes(routes)
 
-    cors = cors_setup(
-        app,
-        defaults={
-            "*": ResourceOptions(
-                allow_credentials=True, expose_headers="*", allow_headers="*"
-            )
-        },
-    )
+    # The Mini App and its API share one origin in production (see deploy/nginx.conf),
+    # so this exists only for local dev, where Vite (5173) talks to a separate backend
+    # port. Never wildcard allow_credentials — that pairs an open origin with the
+    # ability to read authenticated responses from anywhere.
+    dev_origins = {
+        "http://localhost:5173": ResourceOptions(
+            allow_credentials=True, expose_headers="*", allow_headers="*"
+        ),
+        "http://127.0.0.1:5173": ResourceOptions(
+            allow_credentials=True, expose_headers="*", allow_headers="*"
+        ),
+    }
+    external_url = os.environ.get("EXTERNAL_URL")
+    if external_url:
+        dev_origins[external_url] = ResourceOptions(
+            allow_credentials=True, expose_headers="*", allow_headers="*"
+        )
+    cors = cors_setup(app, defaults=dev_origins)
     for route in list(app.router.routes()):
         cors.add(route)
 
