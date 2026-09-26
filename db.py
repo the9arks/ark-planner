@@ -1013,23 +1013,39 @@ def _list_sync(
     return result.data
 
 
-async def list_tasks(user_id: str, limit: int = 50) -> list[dict]:
-    # Keep the last 7 days of history, but never hide a task that's still due in the future.
-    # Done tasks are excluded — completing one is how it leaves this list.
+def _list_tasks_sync(user_id: str, limit: int) -> list[dict]:
+    # Visible if (created recently or still due in the future) AND (still
+    # pending, or done within the last 3 days — a completed task stays
+    # around briefly instead of vanishing the instant it's checked off).
     cutoff = _recent_cutoff_iso()
     now = datetime.now(timezone.utc).isoformat()
-    return await _run(
-        _list_sync,
-        "tasks",
-        user_id,
-        limit,
-        f"created_at.gte.{cutoff},due_at.gte.{now}",
-        {"done": False},
+    done_cutoff = (datetime.now(timezone.utc) - timedelta(days=3)).isoformat()
+    combos = [
+        f"and(created_at.gte.{cutoff},done.eq.false)",
+        f"and(created_at.gte.{cutoff},done.eq.true,done_at.gte.{done_cutoff})",
+        f"and(due_at.gte.{now},done.eq.false)",
+        f"and(due_at.gte.{now},done.eq.true,done_at.gte.{done_cutoff})",
+    ]
+    result = (
+        get_client()
+        .table("tasks")
+        .select("*")
+        .eq("user_id", user_id)
+        .or_(",".join(combos))
+        .order("created_at", desc=True)
+        .limit(limit)
+        .execute()
     )
+    return result.data
+
+
+async def list_tasks(user_id: str, limit: int = 50) -> list[dict]:
+    return await _run(_list_tasks_sync, user_id, limit)
 
 
 def _set_task_done_sync(task_id: str, user_id: str, done: bool) -> None:
-    get_client().table("tasks").update({"done": done}).eq("id", task_id).eq("user_id", user_id).execute()
+    fields = {"done": done, "done_at": datetime.now(timezone.utc).isoformat() if done else None}
+    get_client().table("tasks").update(fields).eq("id", task_id).eq("user_id", user_id).execute()
 
 
 async def set_task_done(task_id: str, user_id: str, done: bool = True) -> None:

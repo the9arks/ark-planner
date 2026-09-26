@@ -67,6 +67,8 @@ export interface Digest {
     lunch_reminder_time: string | null;
     dinner_reminder_time: string | null;
     money_reminder_time: string | null;
+    sleep_goal_bedtime: string | null;
+    sleep_goal_wake_time: string | null;
     tz_offset: number;
     money_goal_amount: number | null;
     tier_expires_at: string | null;

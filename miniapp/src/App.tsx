@@ -448,7 +448,7 @@ function formatWhen(iso?: string | null): string {
   return dt.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit" }) + ` в ${time}`;
 }
 
-interface Task { id: string; created_at: string; title: string; due_at: string | null }
+interface Task { id: string; created_at: string; title: string; due_at: string | null; done: boolean }
 interface Note { id: string; created_at: string; content: string }
 interface Meeting { id: string; created_at: string; title: string; with_who: string | null; starts_at: string | null }
 interface MoneyEntry {
@@ -854,7 +854,17 @@ function SleepCard({ entry, onChanged }: { entry: SleepLog; onChanged: () => voi
   );
 }
 
-function SleepView({ refreshTick, onChanged }: { refreshTick: number; onChanged: () => void }) {
+function SleepView({
+  refreshTick,
+  onChanged,
+  digest,
+  onTimeSaved,
+}: {
+  refreshTick: number;
+  onChanged: () => void;
+  digest: Digest | null;
+  onTimeSaved: (field: string, value: string) => void;
+}) {
   const [items, setItems] = useState<SleepLog[] | null>(null);
   const [adding, setAdding] = useState(false);
   const [start, setStart] = useState("");
@@ -895,6 +905,23 @@ function SleepView({ refreshTick, onChanged }: { refreshTick: number; onChanged:
 
   return (
     <div className="flex flex-col gap-3">
+      {digest && (
+        <div className="flex flex-col gap-2">
+          <div className="text-[11px] uppercase tracking-wider text-white/40">Норма сна</div>
+          <TimeRow
+            label="Хочу ложиться"
+            field="sleep_goal_bedtime"
+            value={digest.user.sleep_goal_bedtime}
+            onSaved={onTimeSaved}
+          />
+          <TimeRow
+            label="Хочу просыпаться"
+            field="sleep_goal_wake_time"
+            value={digest.user.sleep_goal_wake_time}
+            onSaved={onTimeSaved}
+          />
+        </div>
+      )}
       {adding ? (
         <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3 flex flex-col gap-2">
           <div className="flex items-center gap-2">
@@ -971,7 +998,7 @@ function TaskCard({ task, onChanged }: { task: Task; onChanged: () => void }) {
   async function handleDone() {
     setBusy(true);
     try {
-      await completeTask(task.id);
+      await completeTask(task.id, !task.done);
       onChanged();
     } catch {
       setError("Не получилось, попробуй ещё раз");
@@ -1012,22 +1039,31 @@ function TaskCard({ task, onChanged }: { task: Task; onChanged: () => void }) {
   }
 
   return (
-    <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+    <div className={`rounded-xl border border-white/10 bg-white/[0.03] p-3 ${task.done ? "opacity-40" : ""}`}>
       <div className="flex items-center justify-between gap-3">
-        <button className="flex-1 text-left min-w-0" onClick={() => setExpanded((e) => !e)}>
-          <div className="text-sm">{task.title}</div>
-          {task.due_at && <div className="text-white/40 text-xs mt-1">{formatWhen(task.due_at)}</div>}
+        <button
+          className="flex-1 text-left min-w-0"
+          onClick={() => !task.done && setExpanded((e) => !e)}
+          disabled={task.done}
+        >
+          <div className={`text-sm ${task.done ? "line-through" : ""}`}>{task.title}</div>
+          {task.due_at && (
+            <div className="text-white/40 text-xs mt-1">
+              {formatWhen(task.due_at)}
+              {task.done ? " · выполнено" : ""}
+            </div>
+          )}
         </button>
         <button
           disabled={busy}
           onClick={handleDone}
-          aria-label="Отметить выполненной"
+          aria-label={task.done ? "Вернуть в активные" : "Отметить выполненной"}
           className="shrink-0 w-7 h-7 rounded-full border border-white/15 text-white/50 hover:text-white hover:border-white/40 text-sm grid place-items-center disabled:opacity-50"
         >
-          ✓
+          {task.done ? "↺" : "✓"}
         </button>
       </div>
-      {expanded && (
+      {!task.done && expanded && (
         <div className="mt-3 flex flex-col gap-2">
           {renaming ? (
             <div className="flex items-center gap-2">
@@ -1181,12 +1217,17 @@ function TasksView({ refreshTick, onChanged }: { refreshTick: number; onChanged:
           const tomorrow = new Date(now);
           tomorrow.setDate(now.getDate() + 1);
           const tomorrowStr = tomorrow.toDateString();
-          const groups: { today: Task[]; tomorrow: Task[]; other: Task[] } = {
+          const groups: { today: Task[]; tomorrow: Task[]; other: Task[]; done: Task[] } = {
             today: [],
             tomorrow: [],
             other: [],
+            done: [],
           };
           items.forEach((t) => {
+            if (t.done) {
+              groups.done.push(t);
+              return;
+            }
             if (!t.due_at) {
               groups.today.push(t);
               return;
@@ -1200,6 +1241,7 @@ function TasksView({ refreshTick, onChanged }: { refreshTick: number; onChanged:
             { label: "Сегодня", list: groups.today },
             { label: "Завтра", list: groups.tomorrow },
             { label: "Ранее / архив", list: groups.other },
+            { label: "Выполнено", list: groups.done },
           ];
           return (
             <div className="flex flex-col gap-4">
@@ -2230,7 +2272,16 @@ export default function App() {
         {tab === "meetings" && <MeetingsView refreshTick={refreshTick} onChanged={handleSubmitted} />}
         {tab === "food" && <FoodView refreshTick={refreshTick} />}
         {tab === "rituals" && <HabitsView refreshTick={refreshTick} onChanged={handleSubmitted} />}
-        {tab === "sleep" && <SleepView refreshTick={refreshTick} onChanged={handleSubmitted} />}
+        {tab === "sleep" && (
+          <SleepView
+            refreshTick={refreshTick}
+            onChanged={handleSubmitted}
+            digest={digest}
+            onTimeSaved={(field, value) =>
+              setDigest((prev) => (prev ? { ...prev, user: { ...prev.user, [field]: value } } : prev))
+            }
+          />
+        )}
         {tab === "settings" && (
           <SettingsView
             digest={digest}

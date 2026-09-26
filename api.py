@@ -453,6 +453,8 @@ async def set_time_setting(request: web.Request):
         "lunch_reminder_time",
         "dinner_reminder_time",
         "money_reminder_time",
+        "sleep_goal_bedtime",
+        "sleep_goal_wake_time",
     }
     if field not in allowed_fields:
         return web.json_response({"error": "invalid_field"}, status=400)
