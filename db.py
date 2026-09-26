@@ -879,6 +879,7 @@ def _get_digest_sync(user_id: str) -> dict:
         "notes_items": today_rows("notes", "id,content"),
         "meetings_items": today_rows("meetings", "id,title,with_who,starts_at"),
         "money_items": today_rows("money_entries", "id,amount,category,direction"),
+        "food_items": today_rows("food_entries", "id,description,calories,created_at"),
         "habits_pending": habits_pending,
     }
 
@@ -1053,6 +1054,22 @@ async def update_meeting(meeting_id: str, user_id: str, **fields) -> None:
 
 async def list_sleep(user_id: str, limit: int = 50) -> list[dict]:
     return await _run(_list_sync, "sleep_logs", user_id, limit)
+
+
+def _delete_sleep_sync(sleep_id: str, user_id: str) -> None:
+    get_client().table("sleep_logs").delete().eq("id", sleep_id).eq("user_id", user_id).execute()
+
+
+async def delete_sleep(sleep_id: str, user_id: str) -> None:
+    await _run(_delete_sleep_sync, sleep_id, user_id)
+
+
+def _update_sleep_sync(sleep_id: str, user_id: str, fields: dict) -> None:
+    get_client().table("sleep_logs").update(fields).eq("id", sleep_id).eq("user_id", user_id).execute()
+
+
+async def update_sleep(sleep_id: str, user_id: str, **fields) -> None:
+    await _run(_update_sleep_sync, sleep_id, user_id, fields)
 
 
 async def list_notes(user_id: str, limit: int = 50) -> list[dict]:

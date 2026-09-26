@@ -86,6 +86,7 @@ export interface Digest {
     notes_items: { id: string; content: string }[];
     meetings_items: { id: string; title: string; with_who: string | null; starts_at: string | null }[];
     money_items: { id: string; amount: number; category: string | null; direction: "expense" | "income" }[];
+    food_items: { id: string; description: string | null; calories: number | null; created_at: string }[];
     habits_pending: string[];
     habits_total: number;
     sleep_items: { sleep_start: string | null; sleep_end: string | null; hours: number | null }[];
@@ -163,6 +164,21 @@ export function deleteNote(noteId: string) {
 
 export function deleteMoneyEntry(entryId: string) {
   return apiDelete<{ ok: boolean }>(`/api/money/${entryId}`);
+}
+
+export function addSleepManual(sleepStart: string | null, sleepEnd: string | null) {
+  return apiPost<{ ok: boolean; entry: unknown }>("/api/sleep/manual", {
+    sleep_start: sleepStart,
+    sleep_end: sleepEnd,
+  });
+}
+
+export function updateSleep(sleepId: string, fields: { sleep_start?: string | null; sleep_end?: string | null }) {
+  return apiPost<{ ok: boolean }>(`/api/sleep/${sleepId}/update`, fields);
+}
+
+export function deleteSleep(sleepId: string) {
+  return apiDelete<{ ok: boolean }>(`/api/sleep/${sleepId}`);
 }
 
 export function rescheduleMeeting(meetingId: string, startsAt: string) {

@@ -199,6 +199,66 @@ async def cancel_meeting(request: web.Request):
     return web.json_response({"ok": True})
 
 
+def _hours_between(start_iso: str | None, end_iso: str | None) -> float | None:
+    if not start_iso or not end_iso:
+        return None
+    try:
+        start_dt = datetime.fromisoformat(start_iso)
+        end_dt = datetime.fromisoformat(end_iso)
+    except ValueError:
+        return None
+    delta = (end_dt - start_dt).total_seconds() / 3600
+    if delta < 0:
+        delta += 24
+    return round(delta, 1)
+
+
+@routes.post("/api/sleep/manual")
+async def add_sleep_manual(request: web.Request):
+    user = await _authenticate(request)
+    if not user:
+        return web.json_response({"error": "unauthorized"}, status=401)
+
+    body = await request.json()
+    sleep_start = body.get("sleep_start")
+    sleep_end = body.get("sleep_end")
+    hours = _hours_between(sleep_start, sleep_end)
+    entry = await db.add_sleep(user["id"], sleep_start, sleep_end, hours, None)
+    return web.json_response({"ok": True, "entry": entry})
+
+
+@routes.post("/api/sleep/{sleep_id}/update")
+async def update_sleep_route(request: web.Request):
+    user = await _authenticate(request)
+    if not user:
+        return web.json_response({"error": "unauthorized"}, status=401)
+
+    body = await request.json()
+    fields: dict = {}
+    if "sleep_start" in body:
+        fields["sleep_start"] = body.get("sleep_start")
+    if "sleep_end" in body:
+        fields["sleep_end"] = body.get("sleep_end")
+    if not fields:
+        return web.json_response({"error": "empty_update"}, status=400)
+    hours = _hours_between(fields.get("sleep_start"), fields.get("sleep_end"))
+    if hours is not None:
+        fields["hours"] = hours
+
+    await db.update_sleep(request.match_info["sleep_id"], user["id"], **fields)
+    return web.json_response({"ok": True})
+
+
+@routes.delete("/api/sleep/{sleep_id}")
+async def delete_sleep_route(request: web.Request):
+    user = await _authenticate(request)
+    if not user:
+        return web.json_response({"error": "unauthorized"}, status=401)
+
+    await db.delete_sleep(request.match_info["sleep_id"], user["id"])
+    return web.json_response({"ok": True})
+
+
 @routes.post("/api/meetings/{meeting_id}/update")
 async def update_meeting_route(request: web.Request):
     user = await _authenticate(request)

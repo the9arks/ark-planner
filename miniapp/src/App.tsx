@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import {
+  addSleepManual,
   addTaskManual,
   cancelMeeting,
   checkinHabit,
@@ -8,6 +9,7 @@ import {
   createOrder,
   deleteMoneyEntry,
   deleteNote,
+  deleteSleep,
   getDigest,
   getFoodSummary,
   getMoneySummary,
@@ -22,6 +24,7 @@ import {
   setTimezone,
   submitEntry,
   updateMeeting,
+  updateSleep,
   updateTask,
   type Digest,
   type FoodSummary,
@@ -148,14 +151,10 @@ function RichCard({
         <div className="flex-1 flex items-center">
           <span className="text-white/30 text-sm">{hint}</span>
         </div>
-      ) : lines.length === 1 ? (
-        <div className="flex-1 flex items-center">
-          <span className="text-sm leading-snug">{lines[0]}</span>
-        </div>
       ) : (
         <div className="flex-1 flex flex-col justify-center gap-1">
           {lines.slice(0, 3).map((l, i) => (
-            <span key={i} className="text-white/70 text-xs leading-snug truncate">
+            <span key={i} className="text-sm leading-snug truncate">
               {l}
             </span>
           ))}
@@ -215,9 +214,13 @@ function DigestView({ digest, onNavigate }: { digest: Digest | null; onNavigate:
   const moneyLines = (d?.money_items ?? []).map((m) =>
     truncate(`${m.direction === "income" ? "+" : "−"}${m.amount}₽${m.category ? " " + m.category : ""}`, 60)
   );
-  const sleepLines = (d?.sleep_items ?? []).map(
-    (s) => `${formatTimeOnly(s.sleep_start) ?? "—"} → ${formatTimeOnly(s.sleep_end) ?? "—"}`
-  );
+  const sleepItems = d?.sleep_items ?? [];
+  const foodLines = (d?.food_items ?? []).map((f) => {
+    const hour = new Date(f.created_at).getHours();
+    const bucket = MEAL_BUCKETS.find((b) => hour >= b.from && hour < b.to);
+    const label = bucket?.label ?? "Приём пищи";
+    return truncate(`${label}${f.calories ? ` — ${f.calories} ккал` : ""}${f.description ? `, ${f.description}` : ""}`, 60);
+  });
   const habitsPending = d?.habits_pending ?? [];
   const habitsHint =
     (d?.habits_total ?? 0) === 0
@@ -247,36 +250,38 @@ function DigestView({ digest, onNavigate }: { digest: Digest | null; onNavigate:
           hint="Запланировать"
           onClick={() => onNavigate("meetings")}
         />
-        <CountCard
-          title="Приёмы пищи"
-          count={d?.food_today ?? 0}
-          hint="Сфоткай еду"
-          onClick={() => onNavigate("food")}
-        />
+        <RichCard title="Приёмы пищи" lines={foodLines} hint="Сфоткай еду" onClick={() => onNavigate("food")} />
         <RichCard title="Привычки" lines={habitsPending} hint={habitsHint} onClick={() => onNavigate("rituals")} />
         <RichCard title="Финансы" lines={moneyLines} hint="Настрой бюджет" onClick={() => onNavigate("money")} />
-        {sleepLines.length > 0 ? (
-          <RichCard title="Сон" lines={sleepLines} hint="Скажи, во сколько лёг и встал" />
-        ) : (
-          <Card title="Сон">
-            {d?.sleep_start_last || d?.sleep_end_last ? (
-              <div className="flex-1 flex items-end">
-                <span className="text-lg font-semibold">
-                  {formatTimeOnly(d.sleep_start_last) ?? "—"} → {formatTimeOnly(d.sleep_end_last) ?? "—"}
-                </span>
-              </div>
-            ) : d?.sleep_hours_last != null ? (
-              <div className="flex-1 flex items-end">
-                <span className="text-3xl font-semibold">{d.sleep_hours_last}</span>
-                <span className="text-white/30 text-sm ml-1 mb-1">ч. в последний раз</span>
-              </div>
-            ) : (
-              <div className="flex-1 flex items-center">
-                <span className="text-white/30 text-sm">Скажи, во сколько лёг и встал</span>
-              </div>
-            )}
-          </Card>
-        )}
+        <Card title="Сон" onClick={() => onNavigate("sleep")}>
+          {sleepItems.length > 0 ? (
+            <div className="flex-1 flex flex-wrap items-end gap-4">
+              {sleepItems.slice(0, 2).map((s, i) => (
+                <div key={i} className="flex flex-col">
+                  <span className="text-2xl font-semibold">{s.hours != null ? `${s.hours} ч` : "—"}</span>
+                  <span className="text-white/40 text-xs mt-0.5">
+                    {formatTimeOnly(s.sleep_start) ?? "—"} → {formatTimeOnly(s.sleep_end) ?? "—"}
+                  </span>
+                </div>
+              ))}
+            </div>
+          ) : d?.sleep_start_last || d?.sleep_end_last ? (
+            <div className="flex-1 flex items-end">
+              <span className="text-lg font-semibold">
+                {formatTimeOnly(d.sleep_start_last) ?? "—"} → {formatTimeOnly(d.sleep_end_last) ?? "—"}
+              </span>
+            </div>
+          ) : d?.sleep_hours_last != null ? (
+            <div className="flex-1 flex items-end">
+              <span className="text-3xl font-semibold">{d.sleep_hours_last}</span>
+              <span className="text-white/30 text-sm ml-1 mb-1">ч. в последний раз</span>
+            </div>
+          ) : (
+            <div className="flex-1 flex items-center">
+              <span className="text-white/30 text-sm">Скажи, во сколько лёг и встал</span>
+            </div>
+          )}
+        </Card>
       </div>
     </div>
   );
@@ -743,6 +748,9 @@ function MoneyView({ refreshTick }: { refreshTick: number }) {
         {goalError && <div className="text-red-400/80 text-xs mt-2">{goalError}</div>}
       </div>
 
+      <div className="text-[11px] uppercase tracking-wider text-white/40 mt-1 capitalize">
+        {new Date().toLocaleDateString("ru-RU", { month: "long" })}
+      </div>
       <ListView<MoneyEntry>
         key={refreshTick}
         section="money"
@@ -762,6 +770,193 @@ function toDatetimeLocalValue(iso: string): string {
   const dt = new Date(iso);
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}T${pad(dt.getHours())}:${pad(dt.getMinutes())}`;
+}
+
+function SleepCard({ entry, onChanged }: { entry: SleepLog; onChanged: () => void }) {
+  const [expanded, setExpanded] = useState(false);
+  const [start, setStart] = useState(entry.sleep_start ? toDatetimeLocalValue(entry.sleep_start) : "");
+  const [end, setEnd] = useState(entry.sleep_end ? toDatetimeLocalValue(entry.sleep_end) : "");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleSave() {
+    setBusy(true);
+    setError(null);
+    try {
+      await updateSleep(entry.id, {
+        sleep_start: start ? new Date(start).toISOString() : null,
+        sleep_end: end ? new Date(end).toISOString() : null,
+      });
+      onChanged();
+      setExpanded(false);
+    } catch {
+      setError("Не получилось сохранить, попробуй ещё раз");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleDelete() {
+    setBusy(true);
+    try {
+      await deleteSleep(entry.id);
+      onChanged();
+    } catch {
+      setError("Не получилось удалить, попробуй ещё раз");
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+      <button className="w-full text-left" onClick={() => setExpanded((e) => !e)}>
+        <div className="text-sm">
+          {formatTimeOnly(entry.sleep_start) ?? "—"} → {formatTimeOnly(entry.sleep_end) ?? "—"}
+        </div>
+        {entry.hours != null && <div className="text-white/40 text-xs mt-1">{entry.hours} ч.</div>}
+      </button>
+      {expanded && (
+        <div className="mt-3 flex flex-col gap-2">
+          <div className="flex items-center gap-2">
+            <input
+              type="datetime-local"
+              value={start}
+              onChange={(e) => setStart(e.target.value)}
+              className="flex-1 bg-white/[0.06] border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white [color-scheme:dark]"
+            />
+            <input
+              type="datetime-local"
+              value={end}
+              onChange={(e) => setEnd(e.target.value)}
+              className="flex-1 bg-white/[0.06] border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white [color-scheme:dark]"
+            />
+          </div>
+          <div className="flex gap-2">
+            <button
+              disabled={busy}
+              onClick={handleSave}
+              className="flex-1 rounded-lg bg-white text-black text-xs py-2 disabled:opacity-50"
+            >
+              {busy ? "…" : "Сохранить"}
+            </button>
+            <button
+              disabled={busy}
+              onClick={handleDelete}
+              className="flex-1 rounded-lg bg-white/5 text-white/60 text-xs py-2 disabled:opacity-50"
+            >
+              Удалить
+            </button>
+          </div>
+          {error && <div className="text-red-400/80 text-xs">{error}</div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SleepView({ refreshTick, onChanged }: { refreshTick: number; onChanged: () => void }) {
+  const [items, setItems] = useState<SleepLog[] | null>(null);
+  const [adding, setAdding] = useState(false);
+  const [start, setStart] = useState("");
+  const [end, setEnd] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    getSection<SleepLog>("sleep")
+      .then((res) => {
+        if (!cancelled) setItems(res.items);
+      })
+      .catch(() => {
+        if (!cancelled) setItems([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshTick]);
+
+  async function handleAdd() {
+    if (!start && !end) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await addSleepManual(start ? new Date(start).toISOString() : null, end ? new Date(end).toISOString() : null);
+      setStart("");
+      setEnd("");
+      setAdding(false);
+      onChanged();
+    } catch {
+      setError("Не получилось добавить, попробуй ещё раз");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-3">
+      {adding ? (
+        <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3 flex flex-col gap-2">
+          <div className="flex items-center gap-2">
+            <input
+              type="datetime-local"
+              value={start}
+              onChange={(e) => setStart(e.target.value)}
+              className="flex-1 bg-white/[0.06] border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white [color-scheme:dark]"
+            />
+            <input
+              type="datetime-local"
+              value={end}
+              onChange={(e) => setEnd(e.target.value)}
+              className="flex-1 bg-white/[0.06] border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white [color-scheme:dark]"
+            />
+          </div>
+          <div className="flex gap-2">
+            <button
+              disabled={busy}
+              onClick={handleAdd}
+              className="flex-1 rounded-lg bg-white text-black text-xs py-2 disabled:opacity-50"
+            >
+              {busy ? "…" : "Добавить"}
+            </button>
+            <button
+              onClick={() => {
+                setAdding(false);
+                setStart("");
+                setEnd("");
+              }}
+              className="flex-1 rounded-lg bg-white/5 text-white/60 text-xs py-2"
+            >
+              Отмена
+            </button>
+          </div>
+          {error && <div className="text-red-400/80 text-xs">{error}</div>}
+        </div>
+      ) : (
+        <button
+          onClick={() => setAdding(true)}
+          className="rounded-xl border border-white/10 bg-white/[0.03] text-sm py-3 text-white/60"
+        >
+          + Добавить сон
+        </button>
+      )}
+
+      {items === null ? (
+        <div className="text-white/30 text-sm text-center py-20">Загрузка…</div>
+      ) : items.length === 0 ? (
+        <EmptyView
+          label="Записей о сне пока нет"
+          hint="Скажи боту, во сколько лёг и во сколько встал, или добавь кнопкой выше"
+        />
+      ) : (
+        <div className="flex flex-col gap-2">
+          {items.map((s) => (
+            <SleepCard key={s.id} entry={s} onChanged={onChanged} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function TaskCard({ task, onChanged }: { task: Task; onChanged: () => void }) {
@@ -980,11 +1175,47 @@ function TasksView({ refreshTick, onChanged }: { refreshTick: number; onChanged:
       ) : items.length === 0 ? (
         <EmptyView label="Задач пока нет" hint="Напиши боту: «купить молоко завтра» или добавь кнопкой выше" />
       ) : (
-        <div className="flex flex-col gap-2">
-          {items.map((t) => (
-            <TaskCard key={t.id} task={t} onChanged={onChanged} />
-          ))}
-        </div>
+        (() => {
+          const now = new Date();
+          const todayStr = now.toDateString();
+          const tomorrow = new Date(now);
+          tomorrow.setDate(now.getDate() + 1);
+          const tomorrowStr = tomorrow.toDateString();
+          const groups: { today: Task[]; tomorrow: Task[]; other: Task[] } = {
+            today: [],
+            tomorrow: [],
+            other: [],
+          };
+          items.forEach((t) => {
+            if (!t.due_at) {
+              groups.today.push(t);
+              return;
+            }
+            const d = new Date(t.due_at);
+            if (d.toDateString() === todayStr) groups.today.push(t);
+            else if (d.toDateString() === tomorrowStr) groups.tomorrow.push(t);
+            else groups.other.push(t);
+          });
+          const sections = [
+            { label: "Сегодня", list: groups.today },
+            { label: "Завтра", list: groups.tomorrow },
+            { label: "Ранее / архив", list: groups.other },
+          ];
+          return (
+            <div className="flex flex-col gap-4">
+              {sections.map((s) =>
+                s.list.length > 0 ? (
+                  <div key={s.label} className="flex flex-col gap-2">
+                    <div className="text-[11px] uppercase tracking-wider text-white/40">{s.label}</div>
+                    {s.list.map((t) => (
+                      <TaskCard key={t.id} task={t} onChanged={onChanged} />
+                    ))}
+                  </div>
+                ) : null
+              )}
+            </div>
+          );
+        })()
       )}
     </div>
   );
@@ -1167,24 +1398,35 @@ function MeetingsView({ refreshTick, onChanged }: { refreshTick: number; onChang
   }
 
   const now = new Date();
+  const upcoming = items.filter((m) => !(m.starts_at && new Date(m.starts_at) < now));
+  const past = items.filter((m) => m.starts_at && new Date(m.starts_at) < now);
 
   return (
-    <div className="flex flex-col gap-2">
-      {items.map((m) => (
-        <MeetingCard
-          key={m.id}
-          meeting={m}
-          isPast={m.starts_at ? new Date(m.starts_at) < now : false}
-          onChanged={onChanged}
-        />
-      ))}
+    <div className="flex flex-col gap-4">
+      {upcoming.length > 0 && (
+        <div className="flex flex-col gap-2">
+          <div className="text-[11px] uppercase tracking-wider text-white/40">Предстоящие</div>
+          {upcoming.map((m) => (
+            <MeetingCard key={m.id} meeting={m} isPast={false} onChanged={onChanged} />
+          ))}
+        </div>
+      )}
+      {past.length > 0 && (
+        <div className="flex flex-col gap-2">
+          <div className="text-[11px] uppercase tracking-wider text-white/40">Прошли</div>
+          {past.map((m) => (
+            <MeetingCard key={m.id} meeting={m} isPast={true} onChanged={onChanged} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
 
 const MEAL_BUCKETS: { key: string; label: string; from: number; to: number }[] = [
   { key: "breakfast", label: "Завтрак", from: 0, to: 11 },
-  { key: "lunch", label: "Обед", from: 11, to: 17 },
+  { key: "lunch", label: "Обед", from: 11, to: 15 },
+  { key: "snack", label: "Полдник", from: 15, to: 17 },
   { key: "dinner", label: "Ужин", from: 17, to: 24 },
 ];
 
@@ -1238,7 +1480,7 @@ function FoodView({ refreshTick }: { refreshTick: number }) {
     summary?.goal && summary.goal > 0 ? Math.min(100, Math.round((summary.calories_today / summary.goal) * 100)) : null;
 
   const today = new Date().toDateString();
-  const buckets: Record<string, FoodEntry[]> = { breakfast: [], lunch: [], dinner: [], other: [] };
+  const buckets: Record<string, FoodEntry[]> = { breakfast: [], lunch: [], snack: [], dinner: [], other: [] };
   (items ?? []).forEach((f) => {
     const dt = new Date(f.created_at);
     if (dt.toDateString() !== today) {
@@ -1988,18 +2230,7 @@ export default function App() {
         {tab === "meetings" && <MeetingsView refreshTick={refreshTick} onChanged={handleSubmitted} />}
         {tab === "food" && <FoodView refreshTick={refreshTick} />}
         {tab === "rituals" && <HabitsView refreshTick={refreshTick} onChanged={handleSubmitted} />}
-        {tab === "sleep" && (
-          <ListView<SleepLog>
-            key={refreshTick}
-            section="sleep"
-            emptyLabel="Записей о сне пока нет"
-            emptyHint="Скажи боту, во сколько лёг и во сколько встал"
-            render={(s) => ({
-              title: `${formatTimeOnly(s.sleep_start) ?? "—"} → ${formatTimeOnly(s.sleep_end) ?? "—"}`,
-              subtitle: s.hours != null ? `${s.hours} ч.` : undefined,
-            })}
-          />
-        )}
+        {tab === "sleep" && <SleepView refreshTick={refreshTick} onChanged={handleSubmitted} />}
         {tab === "settings" && (
           <SettingsView
             digest={digest}
