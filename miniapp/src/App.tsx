@@ -101,33 +101,6 @@ function Card({
   );
 }
 
-function CountCard({
-  title,
-  count,
-  hint,
-  onClick,
-}: {
-  title: string;
-  count: number;
-  hint: string;
-  onClick: () => void;
-}) {
-  return (
-    <Card title={title} onClick={onClick}>
-      {count > 0 ? (
-        <div className="flex-1 flex items-end">
-          <span className="text-3xl font-semibold">{count}</span>
-          <span className="text-white/30 text-sm ml-1 mb-1">сегодня</span>
-        </div>
-      ) : (
-        <div className="flex-1 flex items-center">
-          <span className="text-white/30 text-sm">{hint}</span>
-        </div>
-      )}
-    </Card>
-  );
-}
-
 function truncate(s: string, n: number): string {
   const trimmed = s.trim();
   return trimmed.length > n ? trimmed.slice(0, n).trimEnd() + "…" : trimmed;
