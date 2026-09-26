@@ -86,6 +86,8 @@ async def get_digest(request: web.Request):
                 "lunch_reminder_time": user.get("lunch_reminder_time"),
                 "dinner_reminder_time": user.get("dinner_reminder_time"),
                 "money_reminder_time": user.get("money_reminder_time"),
+                "sleep_goal_bedtime": user.get("sleep_goal_bedtime"),
+                "sleep_goal_wake_time": user.get("sleep_goal_wake_time"),
                 "tz_offset": user.get("tz_offset", 3),
                 "money_goal_amount": user.get("money_goal_amount"),
                 "tier_expires_at": user.get("tier_expires_at"),

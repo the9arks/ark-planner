@@ -76,18 +76,20 @@ function Card({
   hint,
   children,
   onClick,
+  className,
 }: {
   title: string;
   hint?: string;
   children?: React.ReactNode;
   onClick?: () => void;
+  className?: string;
 }) {
   return (
     <div
       onClick={onClick}
       className={`rounded-2xl border border-white/10 bg-white/[0.03] p-4 flex flex-col gap-2 min-h-[110px]${
         onClick ? " active:bg-white/[0.06] active:scale-[0.98] transition-transform cursor-pointer" : ""
-      }`}
+      }${className ? ` ${className}` : ""}`}
     >
       <span className="text-[11px] uppercase tracking-wider text-white/40">
         {title}
@@ -227,7 +229,7 @@ function DigestView({ digest, onNavigate }: { digest: Digest | null; onNavigate:
         <RichCard title="Приёмы пищи" lines={foodLines} hint="Сфоткай еду" onClick={() => onNavigate("food")} />
         <RichCard title="Привычки" lines={habitsPending} hint={habitsHint} onClick={() => onNavigate("rituals")} />
         <RichCard title="Финансы" lines={moneyLines} hint="Настрой бюджет" onClick={() => onNavigate("money")} />
-        <Card title="Сон" onClick={() => onNavigate("sleep")}>
+        <Card title="Сон" onClick={() => onNavigate("sleep")} className="col-span-2">
           {sleepItems.length > 0 ? (
             <div className="flex-1 flex flex-wrap items-end gap-4">
               {sleepItems.slice(0, 2).map((s, i) => (
