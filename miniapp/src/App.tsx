@@ -21,6 +21,7 @@ import {
   rescheduleMeeting,
   setFoodGoal,
   setMoneyGoal,
+  setDailyMoneyLimit,
   setTimeSetting,
   setTimezone,
   submitEntry,
@@ -642,6 +643,10 @@ function MoneyView({ refreshTick }: { refreshTick: number }) {
   const [goalInput, setGoalInput] = useState("");
   const [savingGoal, setSavingGoal] = useState(false);
   const [goalError, setGoalError] = useState<string | null>(null);
+  const [editingLimit, setEditingLimit] = useState(false);
+  const [limitInput, setLimitInput] = useState("");
+  const [savingLimit, setSavingLimit] = useState(false);
+  const [limitError, setLimitError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -674,9 +679,30 @@ function MoneyView({ refreshTick }: { refreshTick: number }) {
     }
   }
 
+  async function saveLimit() {
+    const trimmed = limitInput.trim();
+    const amount = trimmed ? Number(trimmed) : null;
+    if (trimmed && (!amount || amount <= 0)) return;
+    setSavingLimit(true);
+    setLimitError(null);
+    try {
+      await setDailyMoneyLimit(amount);
+      setSummary((prev) => (prev ? { ...prev, daily_limit: amount } : prev));
+      setEditingLimit(false);
+    } catch {
+      setLimitError("Не получилось сохранить, попробуй ещё раз");
+    } finally {
+      setSavingLimit(false);
+    }
+  }
+
   const goalProgress =
     summary?.goal_amount && summary.goal_amount > 0
       ? Math.min(100, Math.round((summary.month_total / summary.goal_amount) * 100))
+      : null;
+  const limitProgress =
+    summary?.daily_limit && summary.daily_limit > 0
+      ? Math.min(100, Math.round((summary.today_total / summary.daily_limit) * 100))
       : null;
 
   return (
@@ -753,6 +779,57 @@ function MoneyView({ refreshTick }: { refreshTick: number }) {
           <div className="text-white/30 text-sm mt-2">Не задана — сколько хочешь тратить в месяц?</div>
         )}
         {goalError && <div className="text-red-400/80 text-xs mt-2">{goalError}</div>}
+      </div>
+
+      <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+        <div className="flex items-center justify-between">
+          <span className="text-[11px] uppercase tracking-wider text-white/40">Дневной лимит</span>
+          {!editingLimit && (
+            <button
+              onClick={() => {
+                setLimitInput(summary?.daily_limit ? String(summary.daily_limit) : "");
+                setEditingLimit(true);
+              }}
+              className="text-xs text-white/50 underline"
+            >
+              {summary?.daily_limit ? "Изменить" : "Задать"}
+            </button>
+          )}
+        </div>
+        {editingLimit ? (
+          <div className="flex items-center gap-2 mt-2">
+            <input
+              type="number"
+              inputMode="numeric"
+              value={limitInput}
+              onChange={(e) => setLimitInput(e.target.value)}
+              placeholder="Например, 1500"
+              className="flex-1 bg-white/[0.06] border border-white/10 rounded-lg px-2 py-1.5 text-sm text-white"
+            />
+            <button
+              onClick={saveLimit}
+              disabled={savingLimit}
+              className="rounded-lg bg-white text-black text-xs px-3 py-1.5 disabled:opacity-50"
+            >
+              {savingLimit ? "…" : "OK"}
+            </button>
+          </div>
+        ) : summary?.daily_limit ? (
+          <>
+            <div className="text-sm mt-2">
+              {summary.today_total}₽ из {summary.daily_limit}₽
+            </div>
+            <div className="h-2 rounded-full bg-white/10 mt-2 overflow-hidden">
+              <div
+                className={`h-full rounded-full ${limitProgress! >= 100 ? "bg-red-400" : "bg-white"}`}
+                style={{ width: `${limitProgress}%` }}
+              />
+            </div>
+          </>
+        ) : (
+          <div className="text-white/30 text-sm mt-2">Не задан — бот предупредит, если превысишь</div>
+        )}
+        {limitError && <div className="text-red-400/80 text-xs mt-2">{limitError}</div>}
       </div>
 
       <div className="text-[11px] uppercase tracking-wider text-white/40 mt-1 capitalize">

@@ -56,6 +56,25 @@ async def _send_morning_digests(_unused_now: datetime):
                 lines.append(f"  {t['title']}")
         if not agenda["meetings"] and not agenda["tasks"]:
             lines.append("На сегодня ничего не запланировано — можно просто пожить.")
+
+        # Yesterday's calorie recap — only if the person set a goal themselves,
+        # and only once there's a full day of data to judge (not mid-day noise).
+        goal = user.get("calorie_goal")
+        if goal:
+            yesterday_start = now.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=1)
+            eaten = await db.get_calories_between(
+                user["id"], yesterday_start.isoformat(), now.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+            )
+            if eaten > 0:
+                diff = eaten - goal
+                if diff > 0:
+                    verdict = f"переел на {diff} ккал"
+                elif eaten < goal * 0.85:
+                    verdict = f"недобрал {goal - eaten} ккал"
+                else:
+                    verdict = "уложился в цель"
+                lines.append(f"\n🍽 Вчера: {eaten} из {goal} ккал — {verdict}.")
+
         await _send_message(user["telegram_id"], "\n".join(lines))
         await db.mark_morning_digest_sent(user["id"], today_iso)
 
@@ -112,6 +131,32 @@ async def _send_money_reminders(_unused_now: datetime):
             "Не забыл занести траты за сегодня? Скинь чек или просто напиши сумму.",
         )
         await db.mark_money_reminder_sent(user["id"], today_iso)
+
+
+async def _send_sleep_goal_reminders(_unused_now: datetime):
+    for user in await db.get_all_users():
+        now = _user_now(user)
+        today_iso = now.date().isoformat()
+
+        bedtime = user.get("sleep_goal_bedtime")
+        if bedtime and user.get("last_sleep_bedtime_reminder_date") != today_iso:
+            hour, minute = _parse_hhmm(bedtime)
+            if _due(now, hour, minute):
+                await _send_message(
+                    user["telegram_id"],
+                    f"🌙 По твоей цели пора ложиться ({bedtime[:5]}) — сладких снов.",
+                )
+                await db.mark_sleep_bedtime_reminded(user["id"], today_iso)
+
+        wake_time = user.get("sleep_goal_wake_time")
+        if wake_time and user.get("last_wake_reminder_date") != today_iso:
+            hour, minute = _parse_hhmm(wake_time)
+            if _due(now, hour, minute):
+                await _send_message(
+                    user["telegram_id"],
+                    f"☀️ По твоей цели пора вставать ({wake_time[:5]}) — доброе утро!",
+                )
+                await db.mark_wake_reminded(user["id"], today_iso)
 
 
 async def _send_meeting_reminders(now: datetime):
@@ -202,6 +247,7 @@ async def run_tick():
     await _send_morning_digests(now)
     await _send_meal_reminders(now)
     await _send_money_reminders(now)
+    await _send_sleep_goal_reminders(now)
     await _send_meeting_reminders(now)
     await _send_habit_reminders(now)
     await _send_task_reminders(now)

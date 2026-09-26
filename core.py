@@ -160,6 +160,19 @@ async def store_entry(user_id: str, data: dict, tz_offset: int = 3) -> dict:
             direction,
         )
         data["direction"] = direction
+        # Only for expenses, and only if the person set a daily limit themselves.
+        if direction != "income":
+            limit = await db.get_daily_money_limit(user_id)
+            if limit:
+                spent_today = (await db.get_money_summary(user_id))["expense_today"]
+                ratio = spent_today / limit
+                extra = None
+                if ratio >= 1:
+                    extra = f"Это уже {spent_today}₽ из {limit}₽ дневного лимита — превышен."
+                elif ratio >= 0.9:
+                    extra = f"Это уже {spent_today}₽ из {limit}₽ дневного лимита — почти в притык."
+                if extra:
+                    data["comment"] = f"{data.get('comment')} {extra}".strip() if data.get("comment") else extra
     elif entry_type == "food":
         await db.add_food(
             user_id,

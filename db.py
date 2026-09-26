@@ -941,6 +941,23 @@ def _set_money_goal_sync(user_id: str, amount: float | None) -> None:
     get_client().table("users").update({"money_goal_amount": amount}).eq("id", user_id).execute()
 
 
+def _set_daily_money_limit_sync(user_id: str, amount: float | None) -> None:
+    get_client().table("users").update({"daily_money_limit": amount}).eq("id", user_id).execute()
+
+
+async def set_daily_money_limit(user_id: str, amount: float | None) -> None:
+    await _run(_set_daily_money_limit_sync, user_id, amount)
+
+
+def _get_daily_money_limit_sync(user_id: str) -> float | None:
+    rows = get_client().table("users").select("daily_money_limit").eq("id", user_id).execute().data
+    return rows[0]["daily_money_limit"] if rows else None
+
+
+async def get_daily_money_limit(user_id: str) -> float | None:
+    return await _run(_get_daily_money_limit_sync, user_id)
+
+
 async def set_money_goal(user_id: str, amount: float | None) -> None:
     await _run(_set_money_goal_sync, user_id, amount)
 
@@ -978,6 +995,19 @@ def _get_calories_today_sync(user_id: str) -> int:
 
 async def get_calories_today(user_id: str) -> int:
     return await _run(_get_calories_today_sync, user_id)
+
+
+def _get_calories_between_sync(user_id: str, since_iso: str, until_iso: str) -> int:
+    rows = (
+        get_client().table("food_entries").select("calories")
+        .eq("user_id", user_id).gte("created_at", since_iso).lt("created_at", until_iso)
+        .execute().data
+    )
+    return sum(r["calories"] or 0 for r in rows)
+
+
+async def get_calories_between(user_id: str, since_iso: str, until_iso: str) -> int:
+    return await _run(_get_calories_between_sync, user_id, since_iso, until_iso)
 
 
 def _get_habit_sync(habit_id: str) -> dict | None:
@@ -1215,6 +1245,14 @@ async def mark_meal_reminder_sent(user_id: str, meal: str, today_iso: str):
 
 async def mark_money_reminder_sent(user_id: str, today_iso: str):
     await _run(_mark_date_field_sync, user_id, "last_money_reminder_date", today_iso)
+
+
+async def mark_sleep_bedtime_reminded(user_id: str, today_iso: str):
+    await _run(_mark_date_field_sync, user_id, "last_sleep_bedtime_reminder_date", today_iso)
+
+
+async def mark_wake_reminded(user_id: str, today_iso: str):
+    await _run(_mark_date_field_sync, user_id, "last_wake_reminder_date", today_iso)
 
 
 def _get_meetings_needing_reminder_sync(field: str, now_iso: str, threshold_iso: str) -> list[dict]:

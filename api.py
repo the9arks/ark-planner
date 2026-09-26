@@ -90,6 +90,7 @@ async def get_digest(request: web.Request):
                 "sleep_goal_wake_time": user.get("sleep_goal_wake_time"),
                 "tz_offset": user.get("tz_offset", 3),
                 "money_goal_amount": user.get("money_goal_amount"),
+                "daily_money_limit": user.get("daily_money_limit"),
                 "tier_expires_at": user.get("tier_expires_at"),
                 "had_subscription": had_subscription,
             },
@@ -114,6 +115,7 @@ async def get_money_summary(request: web.Request):
         return web.json_response({"error": "unauthorized"}, status=401)
     summary = await db.get_money_summary(user["id"])
     summary["goal_amount"] = user.get("money_goal_amount")
+    summary["daily_limit"] = user.get("daily_money_limit")
     return web.json_response(summary)
 
 
@@ -137,6 +139,29 @@ async def set_money_goal(request: web.Request):
         return web.json_response({"error": "invalid_amount"}, status=400)
 
     await db.set_money_goal(user["id"], amount)
+    return web.json_response({"ok": True})
+
+
+@routes.post("/api/money/daily-limit")
+async def set_daily_money_limit(request: web.Request):
+    user = await _authenticate(request)
+    if not user:
+        return web.json_response({"error": "unauthorized"}, status=401)
+
+    body = await request.json()
+    raw = body.get("amount")
+    if raw in (None, ""):
+        await db.set_daily_money_limit(user["id"], None)
+        return web.json_response({"ok": True})
+
+    try:
+        amount = float(raw)
+    except (TypeError, ValueError):
+        return web.json_response({"error": "invalid_amount"}, status=400)
+    if amount <= 0:
+        return web.json_response({"error": "invalid_amount"}, status=400)
+
+    await db.set_daily_money_limit(user["id"], amount)
     return web.json_response({"ok": True})
 
 

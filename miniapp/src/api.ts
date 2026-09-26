@@ -67,6 +67,7 @@ export interface Digest {
     lunch_reminder_time: string | null;
     dinner_reminder_time: string | null;
     money_reminder_time: string | null;
+    daily_money_limit: number | null;
     sleep_goal_bedtime: string | null;
     sleep_goal_wake_time: string | null;
     tz_offset: number;
@@ -107,6 +108,7 @@ export interface MoneySummary {
   income_month: number;
   expense_month: number;
   goal_amount: number | null;
+  daily_limit: number | null;
 }
 
 export function getMoneySummary() {
@@ -115,6 +117,10 @@ export function getMoneySummary() {
 
 export function setMoneyGoal(amount: number | null) {
   return apiPost<{ ok: boolean }>("/api/money/goal", { amount });
+}
+
+export function setDailyMoneyLimit(amount: number | null) {
+  return apiPost<{ ok: boolean }>("/api/money/daily-limit", { amount });
 }
 
 export interface HabitActionResult {
