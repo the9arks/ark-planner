@@ -199,6 +199,81 @@ async def cancel_meeting(request: web.Request):
     return web.json_response({"ok": True})
 
 
+@routes.post("/api/meetings/{meeting_id}/update")
+async def update_meeting_route(request: web.Request):
+    user = await _authenticate(request)
+    if not user:
+        return web.json_response({"error": "unauthorized"}, status=401)
+
+    body = await request.json()
+    fields: dict = {}
+    if "with_who" in body:
+        fields["with_who"] = (body.get("with_who") or "").strip() or None
+    if "title" in body:
+        title = (body.get("title") or "").strip()
+        if title:
+            fields["title"] = title
+    if not fields:
+        return web.json_response({"error": "empty_update"}, status=400)
+
+    await db.update_meeting(request.match_info["meeting_id"], user["id"], **fields)
+    return web.json_response({"ok": True})
+
+
+@routes.post("/api/tasks/{task_id}/update")
+async def update_task(request: web.Request):
+    user = await _authenticate(request)
+    if not user:
+        return web.json_response({"error": "unauthorized"}, status=401)
+
+    body = await request.json()
+    fields: dict = {}
+    if "title" in body:
+        title = (body.get("title") or "").strip()
+        if not title:
+            return web.json_response({"error": "empty_title"}, status=400)
+        fields["title"] = title
+    if "due_at" in body:
+        fields["due_at"] = body.get("due_at")
+    if not fields:
+        return web.json_response({"error": "empty_update"}, status=400)
+
+    await db.update_task(request.match_info["task_id"], user["id"], **fields)
+    return web.json_response({"ok": True})
+
+
+@routes.post("/api/tasks/{task_id}/done")
+async def complete_task(request: web.Request):
+    user = await _authenticate(request)
+    if not user:
+        return web.json_response({"error": "unauthorized"}, status=401)
+
+    body = await request.json()
+    done = bool(body.get("done", True))
+    await db.set_task_done(request.match_info["task_id"], user["id"], done)
+    return web.json_response({"ok": True})
+
+
+@routes.delete("/api/notes/{note_id}")
+async def delete_note(request: web.Request):
+    user = await _authenticate(request)
+    if not user:
+        return web.json_response({"error": "unauthorized"}, status=401)
+
+    await db.delete_note(request.match_info["note_id"], user["id"])
+    return web.json_response({"ok": True})
+
+
+@routes.delete("/api/money/{entry_id}")
+async def delete_money_entry(request: web.Request):
+    user = await _authenticate(request)
+    if not user:
+        return web.json_response({"error": "unauthorized"}, status=401)
+
+    await db.delete_money_entry(request.match_info["entry_id"], user["id"])
+    return web.json_response({"ok": True})
+
+
 @routes.post("/api/meetings/{meeting_id}/reschedule")
 async def reschedule_meeting_api(request: web.Request):
     user = await _authenticate(request)
@@ -464,6 +539,7 @@ _LIST_FNS = {
     "money": db.list_money,
     "food": db.list_food,
     "rituals": db.list_habits,
+    "sleep": db.list_sleep,
 }
 
 

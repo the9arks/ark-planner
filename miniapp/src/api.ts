@@ -80,6 +80,15 @@ export interface Digest {
     food_today: number;
     rituals_today: number;
     sleep_hours_last: number | null;
+    sleep_start_last: string | null;
+    sleep_end_last: string | null;
+    tasks_items: { id: string; title: string }[];
+    notes_items: { id: string; content: string }[];
+    meetings_items: { id: string; title: string; with_who: string | null; starts_at: string | null }[];
+    money_items: { id: string; amount: number; category: string | null; direction: "expense" | "income" }[];
+    habits_pending: string[];
+    habits_total: number;
+    sleep_items: { sleep_start: string | null; sleep_end: string | null; hours: number | null }[];
   };
 }
 
@@ -140,10 +149,30 @@ export function cancelMeeting(meetingId: string) {
   return apiDelete<{ ok: boolean }>(`/api/meetings/${meetingId}`);
 }
 
+export function completeTask(taskId: string, done: boolean = true) {
+  return apiPost<{ ok: boolean }>(`/api/tasks/${taskId}/done`, { done });
+}
+
+export function updateTask(taskId: string, fields: { title?: string; due_at?: string | null }) {
+  return apiPost<{ ok: boolean }>(`/api/tasks/${taskId}/update`, fields);
+}
+
+export function deleteNote(noteId: string) {
+  return apiDelete<{ ok: boolean }>(`/api/notes/${noteId}`);
+}
+
+export function deleteMoneyEntry(entryId: string) {
+  return apiDelete<{ ok: boolean }>(`/api/money/${entryId}`);
+}
+
 export function rescheduleMeeting(meetingId: string, startsAt: string) {
   return apiPost<{ ok: boolean; meeting: unknown }>(`/api/meetings/${meetingId}/reschedule`, {
     starts_at: startsAt,
   });
+}
+
+export function updateMeeting(meetingId: string, fields: { with_who?: string; title?: string }) {
+  return apiPost<{ ok: boolean }>(`/api/meetings/${meetingId}/update`, fields);
 }
 
 export interface OrderResult {

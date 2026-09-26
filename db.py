@@ -511,6 +511,22 @@ async def delete_meeting(meeting_id: str) -> None:
     await _run(_delete_meeting_sync, meeting_id)
 
 
+def _delete_note_sync(note_id: str, user_id: str) -> None:
+    get_client().table("notes").delete().eq("id", note_id).eq("user_id", user_id).execute()
+
+
+async def delete_note(note_id: str, user_id: str) -> None:
+    await _run(_delete_note_sync, note_id, user_id)
+
+
+def _delete_money_entry_sync(entry_id: str, user_id: str) -> None:
+    get_client().table("money_entries").delete().eq("id", entry_id).eq("user_id", user_id).execute()
+
+
+async def delete_money_entry(entry_id: str, user_id: str) -> None:
+    await _run(_delete_money_entry_sync, entry_id, user_id)
+
+
 def _reschedule_meeting_sync(meeting_id: str, starts_at: str) -> dict:
     return (
         get_client()
@@ -798,24 +814,72 @@ def _get_digest_sync(user_id: str) -> dict:
         )
         return q.execute().count or 0
 
+    def today_rows(table: str, columns: str, date_field: str = "created_at", extra_eq: dict | None = None):
+        q = db.table(table).select(columns).eq("user_id", user_id).gte(date_field, today)
+        if extra_eq:
+            for field, value in extra_eq.items():
+                q = q.eq(field, value)
+        return q.order(date_field, desc=True).limit(6).execute().data
+
     last_sleep_rows = (
         db.table("sleep_logs")
-        .select("hours,created_at")
+        .select("hours,sleep_start,sleep_end,created_at")
         .eq("user_id", user_id)
         .order("created_at", desc=True)
         .limit(1)
         .execute()
         .data
     )
+    last_sleep = last_sleep_rows[0] if last_sleep_rows else None
+
+    # Today's sleep rows, newest first — a nap logged in the afternoon shows
+    # alongside last night's sleep instead of hiding it.
+    sleep_items = (
+        db.table("sleep_logs")
+        .select("sleep_start,sleep_end,hours")
+        .eq("user_id", user_id)
+        .gte("created_at", today)
+        .order("created_at", desc=True)
+        .execute()
+        .data
+    )
+
+    habits = (
+        db.table("rituals")
+        .select("id,title")
+        .eq("user_id", user_id)
+        .eq("is_habit", True)
+        .execute()
+        .data
+    )
+    done_today_ids = {
+        row["ritual_id"]
+        for row in db.table("ritual_logs")
+        .select("ritual_id")
+        .eq("user_id", user_id)
+        .gte("done_at", today)
+        .execute()
+        .data
+    }
+    habits_pending = [h["title"] for h in habits if h["id"] not in done_today_ids]
 
     return {
+        "habits_total": len(habits),
         "tasks_today": count("tasks"),
         "notes_today": count("notes"),
         "meetings_today": count("meetings"),
         "money_today": count("money_entries"),
         "food_today": count("food_entries"),
         "rituals_today": count("ritual_logs", "done_at"),
-        "sleep_hours_last": last_sleep_rows[0]["hours"] if last_sleep_rows else None,
+        "sleep_hours_last": last_sleep["hours"] if last_sleep else None,
+        "sleep_start_last": last_sleep["sleep_start"] if last_sleep else None,
+        "sleep_end_last": last_sleep["sleep_end"] if last_sleep else None,
+        "sleep_items": sleep_items,
+        "tasks_items": today_rows("tasks", "id,title", extra_eq={"done": False}),
+        "notes_items": today_rows("notes", "id,content"),
+        "meetings_items": today_rows("meetings", "id,title,with_who,starts_at"),
+        "money_items": today_rows("money_entries", "id,amount,category,direction"),
+        "habits_pending": habits_pending,
     }
 
 
@@ -935,8 +999,13 @@ def _recent_cutoff_iso(days: int = RECENT_HISTORY_DAYS) -> str:
     return (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
 
 
-def _list_sync(table: str, user_id: str, limit: int, or_filter: str | None = None) -> list[dict]:
+def _list_sync(
+    table: str, user_id: str, limit: int, or_filter: str | None = None, extra_eq: dict | None = None
+) -> list[dict]:
     q = get_client().table(table).select("*").eq("user_id", user_id)
+    if extra_eq:
+        for field, value in extra_eq.items():
+            q = q.eq(field, value)
     if or_filter:
         q = q.or_(or_filter)
     result = q.order("created_at", desc=True).limit(limit).execute()
@@ -945,9 +1014,45 @@ def _list_sync(table: str, user_id: str, limit: int, or_filter: str | None = Non
 
 async def list_tasks(user_id: str, limit: int = 50) -> list[dict]:
     # Keep the last 7 days of history, but never hide a task that's still due in the future.
+    # Done tasks are excluded — completing one is how it leaves this list.
     cutoff = _recent_cutoff_iso()
     now = datetime.now(timezone.utc).isoformat()
-    return await _run(_list_sync, "tasks", user_id, limit, f"created_at.gte.{cutoff},due_at.gte.{now}")
+    return await _run(
+        _list_sync,
+        "tasks",
+        user_id,
+        limit,
+        f"created_at.gte.{cutoff},due_at.gte.{now}",
+        {"done": False},
+    )
+
+
+def _set_task_done_sync(task_id: str, user_id: str, done: bool) -> None:
+    get_client().table("tasks").update({"done": done}).eq("id", task_id).eq("user_id", user_id).execute()
+
+
+async def set_task_done(task_id: str, user_id: str, done: bool = True) -> None:
+    await _run(_set_task_done_sync, task_id, user_id, done)
+
+
+def _update_task_sync(task_id: str, user_id: str, fields: dict) -> None:
+    get_client().table("tasks").update(fields).eq("id", task_id).eq("user_id", user_id).execute()
+
+
+async def update_task(task_id: str, user_id: str, **fields) -> None:
+    await _run(_update_task_sync, task_id, user_id, fields)
+
+
+def _update_meeting_sync(meeting_id: str, user_id: str, fields: dict) -> None:
+    get_client().table("meetings").update(fields).eq("id", meeting_id).eq("user_id", user_id).execute()
+
+
+async def update_meeting(meeting_id: str, user_id: str, **fields) -> None:
+    await _run(_update_meeting_sync, meeting_id, user_id, fields)
+
+
+async def list_sleep(user_id: str, limit: int = 50) -> list[dict]:
+    return await _run(_list_sync, "sleep_logs", user_id, limit)
 
 
 async def list_notes(user_id: str, limit: int = 50) -> list[dict]:

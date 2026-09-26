@@ -4,7 +4,10 @@ import {
   cancelMeeting,
   checkinHabit,
   claimTrial,
+  completeTask,
   createOrder,
+  deleteMoneyEntry,
+  deleteNote,
   getDigest,
   getFoodSummary,
   getMoneySummary,
@@ -18,6 +21,8 @@ import {
   setTimeSetting,
   setTimezone,
   submitEntry,
+  updateMeeting,
+  updateTask,
   type Digest,
   type FoodSummary,
   type MoneySummary,
@@ -33,17 +38,20 @@ type TabId =
   | "meetings"
   | "food"
   | "rituals"
+  | "sleep"
   | "settings";
 
+// "Настройки" no longer lives here — it opens from the gear icon in the
+// header instead, so these 8 slots stay real content, 2 rows of 4.
 const TABS: { id: TabId; num: string; label: string }[] = [
   { id: "digest", num: "01", label: "Сегодня" },
   { id: "tasks", num: "02", label: "Задачи" },
   { id: "notes", num: "03", label: "Заметки" },
-  { id: "money", num: "04", label: "Деньги" },
+  { id: "money", num: "04", label: "Финансы" },
   { id: "meetings", num: "05", label: "Встречи" },
-  { id: "food", num: "06", label: "Еда" },
+  { id: "food", num: "06", label: "Приёмы пищи" },
   { id: "rituals", num: "07", label: "Привычки" },
-  { id: "settings", num: "08", label: "Настройки" },
+  { id: "sleep", num: "08", label: "Сон" },
 ];
 
 function ArkMark({ size = 36 }: { size?: number }) {
@@ -116,6 +124,53 @@ function CountCard({
   );
 }
 
+function truncate(s: string, n: number): string {
+  const trimmed = s.trim();
+  return trimmed.length > n ? trimmed.slice(0, n).trimEnd() + "…" : trimmed;
+}
+
+// Shows what's actually in a category, not just a count: one item reads in
+// full, several stack as short lines — so the tile answers "what" not just "how many".
+function RichCard({
+  title,
+  lines,
+  hint,
+  onClick,
+}: {
+  title: string;
+  lines: string[];
+  hint: string;
+  onClick?: () => void;
+}) {
+  return (
+    <Card title={title} onClick={onClick}>
+      {lines.length === 0 ? (
+        <div className="flex-1 flex items-center">
+          <span className="text-white/30 text-sm">{hint}</span>
+        </div>
+      ) : lines.length === 1 ? (
+        <div className="flex-1 flex items-center">
+          <span className="text-sm leading-snug">{lines[0]}</span>
+        </div>
+      ) : (
+        <div className="flex-1 flex flex-col justify-center gap-1">
+          {lines.slice(0, 3).map((l, i) => (
+            <span key={i} className="text-white/70 text-xs leading-snug truncate">
+              {l}
+            </span>
+          ))}
+          {lines.length > 3 && <span className="text-white/30 text-[10px]">+{lines.length - 3} ещё</span>}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function formatTimeOnly(iso?: string | null): string | null {
+  if (!iso) return null;
+  return new Date(iso).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+}
+
 const MOTIVATIONAL_PHRASES = [
   "Проживём сегодня чуть лучше, чем вчера.",
   "Маленькие шаги каждый день — большой путь за год.",
@@ -149,6 +204,28 @@ function DigestView({ digest, onNavigate }: { digest: Digest | null; onNavigate:
       d.rituals_today ||
       d.sleep_hours_last != null);
 
+  const taskLines = (d?.tasks_items ?? []).map((t) => truncate(t.title, 60));
+  const noteLines = (d?.notes_items ?? []).map((n) => truncate(n.content, 60));
+  const meetingLines = (d?.meetings_items ?? []).map((m) =>
+    truncate(
+      `${m.with_who ? `С ${m.with_who}` : m.title}${m.starts_at ? " — " + formatWhen(m.starts_at) : ""}`,
+      60
+    )
+  );
+  const moneyLines = (d?.money_items ?? []).map((m) =>
+    truncate(`${m.direction === "income" ? "+" : "−"}${m.amount}₽${m.category ? " " + m.category : ""}`, 60)
+  );
+  const sleepLines = (d?.sleep_items ?? []).map(
+    (s) => `${formatTimeOnly(s.sleep_start) ?? "—"} → ${formatTimeOnly(s.sleep_end) ?? "—"}`
+  );
+  const habitsPending = d?.habits_pending ?? [];
+  const habitsHint =
+    (d?.habits_total ?? 0) === 0
+      ? "Заведи первую"
+      : habitsPending.length === 0
+        ? "Все привычки отмечены"
+        : "Отметь сегодня";
+
   return (
     <div className="flex flex-col gap-3">
       <div className="rounded-2xl bg-gradient-to-br from-white/[0.06] to-white/[0.01] border border-white/10 p-5">
@@ -162,54 +239,44 @@ function DigestView({ digest, onNavigate }: { digest: Digest | null; onNavigate:
       </div>
 
       <div className="grid grid-cols-2 gap-3">
-        <CountCard
-          title="Задачи"
-          count={d?.tasks_today ?? 0}
-          hint="Добавить первую"
-          onClick={() => onNavigate("tasks")}
-        />
-        <CountCard
-          title="Заметки"
-          count={d?.notes_today ?? 0}
-          hint="Мысль или запись"
-          onClick={() => onNavigate("notes")}
-        />
-        <CountCard
+        <RichCard title="Задачи" lines={taskLines} hint="Добавить первую" onClick={() => onNavigate("tasks")} />
+        <RichCard title="Заметки" lines={noteLines} hint="Мысль или запись" onClick={() => onNavigate("notes")} />
+        <RichCard
           title="Встречи"
-          count={d?.meetings_today ?? 0}
+          lines={meetingLines}
           hint="Запланировать"
           onClick={() => onNavigate("meetings")}
         />
         <CountCard
-          title="Еда"
+          title="Приёмы пищи"
           count={d?.food_today ?? 0}
           hint="Сфоткай еду"
           onClick={() => onNavigate("food")}
         />
-        <CountCard
-          title="Привычки"
-          count={d?.rituals_today ?? 0}
-          hint="Отметь сегодня"
-          onClick={() => onNavigate("rituals")}
-        />
-        <CountCard
-          title="Деньги"
-          count={d?.money_today ?? 0}
-          hint="Настрой бюджет"
-          onClick={() => onNavigate("money")}
-        />
-        <Card title="Сон">
-          {d?.sleep_hours_last != null ? (
-            <div className="flex-1 flex items-end">
-              <span className="text-3xl font-semibold">{d.sleep_hours_last}</span>
-              <span className="text-white/30 text-sm ml-1 mb-1">ч. в последний раз</span>
-            </div>
-          ) : (
-            <div className="flex-1 flex items-center">
-              <span className="text-white/30 text-sm">Скажи, во сколько лёг и встал</span>
-            </div>
-          )}
-        </Card>
+        <RichCard title="Привычки" lines={habitsPending} hint={habitsHint} onClick={() => onNavigate("rituals")} />
+        <RichCard title="Финансы" lines={moneyLines} hint="Настрой бюджет" onClick={() => onNavigate("money")} />
+        {sleepLines.length > 0 ? (
+          <RichCard title="Сон" lines={sleepLines} hint="Скажи, во сколько лёг и встал" />
+        ) : (
+          <Card title="Сон">
+            {d?.sleep_start_last || d?.sleep_end_last ? (
+              <div className="flex-1 flex items-end">
+                <span className="text-lg font-semibold">
+                  {formatTimeOnly(d.sleep_start_last) ?? "—"} → {formatTimeOnly(d.sleep_end_last) ?? "—"}
+                </span>
+              </div>
+            ) : d?.sleep_hours_last != null ? (
+              <div className="flex-1 flex items-end">
+                <span className="text-3xl font-semibold">{d.sleep_hours_last}</span>
+                <span className="text-white/30 text-sm ml-1 mb-1">ч. в последний раз</span>
+              </div>
+            ) : (
+              <div className="flex-1 flex items-center">
+                <span className="text-white/30 text-sm">Скажи, во сколько лёг и встал</span>
+              </div>
+            )}
+          </Card>
+        )}
       </div>
     </div>
   );
@@ -220,11 +287,13 @@ function ListView<T extends { id: string; created_at: string }>({
   emptyLabel,
   emptyHint,
   render,
+  onDelete,
 }: {
   section: string;
   emptyLabel: string;
   emptyHint: string;
   render: (item: T) => { title: string; subtitle?: string };
+  onDelete?: (item: T) => Promise<unknown>;
 }) {
   const [items, setItems] = useState<T[] | null>(null);
 
@@ -242,6 +311,16 @@ function ListView<T extends { id: string; created_at: string }>({
     };
   }, [section]);
 
+  async function handleDelete(item: T) {
+    if (!onDelete) return;
+    try {
+      await onDelete(item);
+      setItems((prev) => (prev ? prev.filter((i) => i.id !== item.id) : prev));
+    } catch {
+      // leave it in the list — the user can try the ✕ again
+    }
+  }
+
   if (items === null) {
     return <div className="text-white/30 text-sm text-center py-20">Загрузка…</div>;
   }
@@ -256,10 +335,21 @@ function ListView<T extends { id: string; created_at: string }>({
         return (
           <div
             key={item.id}
-            className="rounded-xl border border-white/10 bg-white/[0.03] p-3"
+            className="rounded-xl border border-white/10 bg-white/[0.03] p-3 flex items-start justify-between gap-2"
           >
-            <div className="text-sm">{title}</div>
-            {subtitle && <div className="text-white/40 text-xs mt-1">{subtitle}</div>}
+            <div className="min-w-0">
+              <div className="text-sm">{title}</div>
+              {subtitle && <div className="text-white/40 text-xs mt-1">{subtitle}</div>}
+            </div>
+            {onDelete && (
+              <button
+                onClick={() => handleDelete(item)}
+                aria-label="Убрать"
+                className="shrink-0 text-white/30 hover:text-white/70 text-sm px-1 leading-none"
+              >
+                ✕
+              </button>
+            )}
           </div>
         );
       })}
@@ -365,6 +455,13 @@ interface MoneyEntry {
   direction: "expense" | "income";
 }
 interface FoodEntry { id: string; created_at: string; description: string | null; calories: number | null }
+interface SleepLog {
+  id: string;
+  created_at: string;
+  sleep_start: string | null;
+  sleep_end: string | null;
+  hours: number | null;
+}
 interface Habit {
   id: string;
   created_at: string;
@@ -655,6 +752,7 @@ function MoneyView({ refreshTick }: { refreshTick: number }) {
           title: `${m.direction === "income" ? "+" : "−"}${m.amount}₽ ${m.category ?? ""}`,
           subtitle: m.comment ?? undefined,
         })}
+        onDelete={(m) => deleteMoneyEntry(m.id)}
       />
     </div>
   );
@@ -664,6 +762,136 @@ function toDatetimeLocalValue(iso: string): string {
   const dt = new Date(iso);
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}T${pad(dt.getHours())}:${pad(dt.getMinutes())}`;
+}
+
+function TaskCard({ task, onChanged }: { task: Task; onChanged: () => void }) {
+  const [expanded, setExpanded] = useState(false);
+  const [renaming, setRenaming] = useState(false);
+  const [rescheduling, setRescheduling] = useState(false);
+  const [title, setTitle] = useState(task.title);
+  const [newTime, setNewTime] = useState(task.due_at ? toDatetimeLocalValue(task.due_at) : "");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleDone() {
+    setBusy(true);
+    try {
+      await completeTask(task.id);
+      onChanged();
+    } catch {
+      setError("Не получилось, попробуй ещё раз");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleRename() {
+    const trimmed = title.trim();
+    if (!trimmed) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await updateTask(task.id, { title: trimmed });
+      onChanged();
+      setRenaming(false);
+      setExpanded(false);
+    } catch {
+      setError("Не получилось сохранить, попробуй ещё раз");
+      setBusy(false);
+    }
+  }
+
+  async function handleReschedule() {
+    if (!newTime) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await updateTask(task.id, { due_at: new Date(newTime).toISOString() });
+      onChanged();
+      setRescheduling(false);
+      setExpanded(false);
+    } catch {
+      setError("Не получилось перенести, попробуй ещё раз");
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+      <div className="flex items-center justify-between gap-3">
+        <button className="flex-1 text-left min-w-0" onClick={() => setExpanded((e) => !e)}>
+          <div className="text-sm">{task.title}</div>
+          {task.due_at && <div className="text-white/40 text-xs mt-1">{formatWhen(task.due_at)}</div>}
+        </button>
+        <button
+          disabled={busy}
+          onClick={handleDone}
+          aria-label="Отметить выполненной"
+          className="shrink-0 w-7 h-7 rounded-full border border-white/15 text-white/50 hover:text-white hover:border-white/40 text-sm grid place-items-center disabled:opacity-50"
+        >
+          ✓
+        </button>
+      </div>
+      {expanded && (
+        <div className="mt-3 flex flex-col gap-2">
+          {renaming ? (
+            <div className="flex items-center gap-2">
+              <input
+                autoFocus
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleRename();
+                }}
+                className="flex-1 bg-white/[0.06] border border-white/10 rounded-lg px-2 py-1.5 text-sm text-white"
+              />
+              <button
+                disabled={busy || !title.trim()}
+                onClick={handleRename}
+                className="rounded-lg bg-white text-black text-xs px-3 py-1.5 disabled:opacity-50"
+              >
+                {busy ? "…" : "OK"}
+              </button>
+            </div>
+          ) : rescheduling ? (
+            <div className="flex items-center gap-2">
+              <input
+                type="datetime-local"
+                value={newTime}
+                onChange={(e) => setNewTime(e.target.value)}
+                className="flex-1 bg-white/[0.06] border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white [color-scheme:dark]"
+              />
+              <button
+                disabled={busy || !newTime}
+                onClick={handleReschedule}
+                className="rounded-lg bg-white text-black text-xs px-3 py-1.5 disabled:opacity-50"
+              >
+                {busy ? "…" : "OK"}
+              </button>
+            </div>
+          ) : (
+            <div className="flex gap-2">
+              <button
+                disabled={busy}
+                onClick={() => setRenaming(true)}
+                className="flex-1 rounded-lg bg-white/10 text-xs py-2 disabled:opacity-50"
+              >
+                Изменить
+              </button>
+              <button
+                disabled={busy}
+                onClick={() => setRescheduling(true)}
+                className="flex-1 rounded-lg bg-white/5 text-white/60 text-xs py-2 disabled:opacity-50"
+              >
+                Перенести
+              </button>
+            </div>
+          )}
+          {error && <div className="text-red-400/80 text-xs">{error}</div>}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function TasksView({ refreshTick, onChanged }: { refreshTick: number; onChanged: () => void }) {
@@ -754,10 +982,7 @@ function TasksView({ refreshTick, onChanged }: { refreshTick: number; onChanged:
       ) : (
         <div className="flex flex-col gap-2">
           {items.map((t) => (
-            <div key={t.id} className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
-              <div className="text-sm">{t.title}</div>
-              {t.due_at && <div className="text-white/40 text-xs mt-1">{formatWhen(t.due_at)}</div>}
-            </div>
+            <TaskCard key={t.id} task={t} onChanged={onChanged} />
           ))}
         </div>
       )}
@@ -776,9 +1001,28 @@ function MeetingCard({
 }) {
   const [expanded, setExpanded] = useState(false);
   const [rescheduling, setRescheduling] = useState(false);
+  const [renaming, setRenaming] = useState(false);
+  const [withWho, setWithWho] = useState(meeting.with_who ?? meeting.title);
   const [newTime, setNewTime] = useState(meeting.starts_at ? toDatetimeLocalValue(meeting.starts_at) : "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  async function handleRename() {
+    const trimmed = withWho.trim();
+    if (!trimmed) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await updateMeeting(meeting.id, { with_who: trimmed });
+      onChanged();
+      setBusy(false);
+      setRenaming(false);
+      setExpanded(false);
+    } catch {
+      setError("Не получилось сохранить, попробуй ещё раз");
+      setBusy(false);
+    }
+  }
 
   async function handleCancel() {
     setBusy(true);
@@ -830,7 +1074,27 @@ function MeetingCard({
       </button>
       {!isPast && expanded && (
         <div className="mt-3 flex flex-col gap-2">
-          {rescheduling ? (
+          {renaming ? (
+            <div className="flex items-center gap-2">
+              <input
+                autoFocus
+                value={withWho}
+                onChange={(e) => setWithWho(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleRename();
+                }}
+                placeholder="С кем встреча"
+                className="flex-1 bg-white/[0.06] border border-white/10 rounded-lg px-2 py-1.5 text-sm text-white"
+              />
+              <button
+                disabled={busy || !withWho.trim()}
+                onClick={handleRename}
+                className="rounded-lg bg-white text-black text-xs px-3 py-1.5 disabled:opacity-50"
+              >
+                {busy ? "…" : "OK"}
+              </button>
+            </div>
+          ) : rescheduling ? (
             <div className="flex items-center gap-2">
               <input
                 type="datetime-local"
@@ -848,6 +1112,13 @@ function MeetingCard({
             </div>
           ) : (
             <div className="flex gap-2">
+              <button
+                disabled={busy}
+                onClick={() => setRenaming(true)}
+                className="flex-1 rounded-lg bg-white/10 text-xs py-2 disabled:opacity-50"
+              >
+                Изменить
+              </button>
               <button
                 disabled={busy}
                 onClick={() => setRescheduling(true)}
@@ -1683,9 +1954,21 @@ export default function App() {
           <ArkMark />
           <span className="font-semibold tracking-wide">ARK PLANNER</span>
         </div>
-        <span className="text-[11px] text-white/40 border border-white/15 rounded-full px-2 py-1">
-          {digest ? TIER_LABELS[digest.user.tier] : "…"}
-        </span>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setTab("settings")}
+            className="text-[11px] text-white/40 border border-white/15 rounded-full px-2 py-1"
+          >
+            {digest ? TIER_LABELS[digest.user.tier] : "…"}
+          </button>
+          <button
+            onClick={() => setTab("settings")}
+            aria-label="Настройки"
+            className="text-white/40 hover:text-white/70 text-lg leading-none w-7 h-7 grid place-items-center"
+          >
+            ⚙
+          </button>
+        </div>
       </header>
 
       <main className="flex-1 overflow-y-auto px-4 py-4 pb-44">
@@ -1698,12 +1981,25 @@ export default function App() {
             emptyLabel="Заметок пока нет"
             emptyHint="Идея, мысль, что угодно — текстом или голосом"
             render={(n) => ({ title: n.content })}
+            onDelete={(n) => deleteNote(n.id)}
           />
         )}
         {tab === "money" && <MoneyView refreshTick={refreshTick} />}
         {tab === "meetings" && <MeetingsView refreshTick={refreshTick} onChanged={handleSubmitted} />}
         {tab === "food" && <FoodView refreshTick={refreshTick} />}
         {tab === "rituals" && <HabitsView refreshTick={refreshTick} onChanged={handleSubmitted} />}
+        {tab === "sleep" && (
+          <ListView<SleepLog>
+            key={refreshTick}
+            section="sleep"
+            emptyLabel="Записей о сне пока нет"
+            emptyHint="Скажи боту, во сколько лёг и во сколько встал"
+            render={(s) => ({
+              title: `${formatTimeOnly(s.sleep_start) ?? "—"} → ${formatTimeOnly(s.sleep_end) ?? "—"}`,
+              subtitle: s.hours != null ? `${s.hours} ч.` : undefined,
+            })}
+          />
+        )}
         {tab === "settings" && (
           <SettingsView
             digest={digest}
